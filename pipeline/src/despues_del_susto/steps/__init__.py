@@ -6,7 +6,7 @@ here so the orchestrator does not change when a step becomes real.
 
 from despues_del_susto.config import Settings
 from despues_del_susto.db.models import Episode
-from despues_del_susto.steps import anchor, subs
+from despues_del_susto.steps import anchor, audio, subs
 
 STEPS: tuple[str, ...] = (
     "subs",
@@ -21,6 +21,7 @@ STEPS: tuple[str, ...] = (
 _RUNNERS = {
     "subs": subs.run,
     "anchor": anchor.run,
+    "audio": audio.run,
 }
 
 

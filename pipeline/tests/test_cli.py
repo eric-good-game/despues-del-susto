@@ -69,6 +69,30 @@ def subtitle_writer(monkeypatch) -> None:
     monkeypatch.setattr("despues_del_susto.steps.subtitles.run_command", fake_run)
 
 
+@pytest.fixture
+def audio_writer(monkeypatch) -> dict:
+    """Fake yt-dlp audio download: records the section and writes an mp3."""
+    state: dict = {"starts": []}
+
+    def fake_run(settings, arguments, *, timeout=None):
+        state["starts"].append(arguments[arguments.index("--download-sections") + 1])
+        video_id = arguments[-1].rsplit("=", 1)[-1]
+        directory = settings.data_dir / "audio"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{video_id}.mp3").write_bytes(b"ID3fake")
+
+    monkeypatch.setattr("despues_del_susto.steps.audio.run_command", fake_run)
+    return state
+
+
+def _set_duration(db_path: Path, video_id: str, seconds: int) -> None:
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE episodes SET duration_s = ? WHERE video_id = ?",
+            (seconds, video_id),
+        )
+
+
 def _anchor_events() -> list[dict]:
     def event(start_s: int, text: str) -> dict:
         return {"tStartMs": start_s * 1000, "dDurationMs": 2000, "segs": [{"utf8": text}]}
@@ -388,8 +412,11 @@ def test_ingest_all_and_a_video_id_are_exclusive(invoke) -> None:
     assert "not both" in result.output
 
 
-def test_subs_and_anchor_store_the_section(invoke, subtitle_writer, db_path: Path) -> None:
+def test_subs_and_anchor_store_the_section(
+    invoke, subtitle_writer, audio_writer, db_path: Path
+) -> None:
     invoke("episode", "add", "abc", "--title", "E")
+    _set_duration(db_path, "abc", 3600)
 
     result = invoke("ingest", "abc")
 
@@ -401,24 +428,32 @@ def test_subs_and_anchor_store_the_section(invoke, subtitle_writer, db_path: Pat
     assert row["anchor_s"] == 2900
     assert row["tail_s"] == 692
     assert row["anchor_kinds"] == "intro,juego,peli"
-    assert "audio: not implemented yet" in result.output
-    assert _step_statuses(db_path, "abc")["audio"] == "pending"
+    assert row["window_start_s"] == 2810
+    assert row["window_origin"] == "anchor"
+    assert audio_writer["starts"] == ["*2810-inf"]
+    assert "audio: done" in result.output
+    assert "transcribe: not implemented yet" in result.output
+    assert _step_statuses(db_path, "abc")["audio"] == "done"
+    assert _step_statuses(db_path, "abc")["transcribe"] == "pending"
 
 
 def test_missing_subtitles_is_a_state_not_a_failure(
-    invoke, monkeypatch, db_path: Path
+    invoke, monkeypatch, audio_writer, db_path: Path
 ) -> None:
     def no_files(settings, arguments):
         return None
 
     monkeypatch.setattr("despues_del_susto.steps.subtitles.run_command", no_files)
     invoke("episode", "add", "abc", "--title", "E")
+    _set_duration(db_path, "abc", 3600)
 
     result = invoke("ingest", "abc")
 
     assert result.exit_code == 0
     assert "subs: done" in result.output
-    assert "audio: not implemented yet" in result.output
+    assert "audio: done" in result.output
     row = _processing(db_path, "abc")
     assert row["subtitles_available"] == 0
     assert row["anchor_state"] == "sin_ancla"
+    assert row["window_start_s"] == 2100
+    assert row["window_origin"] == "fallback"

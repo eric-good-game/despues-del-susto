@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     sync_delay_s: float = 2.0
     sync_min_ratio: float = 0.5
 
+    # Audio window
+    audio_quality: str = "48K"
+    audio_timeout_s: int = 600
+
     @property
     def db_path(self) -> Path:
         """Where the SQLite database lives."""

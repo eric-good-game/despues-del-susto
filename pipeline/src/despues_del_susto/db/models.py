@@ -69,6 +69,8 @@ class EpisodeProcessing(Base):
     anchor_state: Mapped[str | None] = mapped_column(String(20))
     anchor_evidence: Mapped[str | None] = mapped_column(String(500))
     tail_s: Mapped[int | None]
+    window_start_s: Mapped[int | None]
+    window_origin: Mapped[str | None] = mapped_column(String(20))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
