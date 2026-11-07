@@ -12,15 +12,15 @@ cut off the start of the section. The audio is an internal artifact and is never
   `parcial` anchor, 420 s when that anchor is also close to the end, and the last 45 % (capped at
   1500 s) when there is no anchor. The window always reaches the end of the episode.
 - **MP3 at 48 kbps** (`DDS_AUDIO_QUALITY`). At 128 kbps a 40-minute window would exceed the 25 MB
-  limit of the transcription service; 48 kbps leaves even the expanded window around 14 MB.
+  limit of the transcription service; 48 kbps leaves even a 40-minute window around 14 MB.
 - **Accurate cuts** with `--force-keyframes-at-cuts`. Without it the audio can start seconds away
   from the requested second, and the offset applied to the transcript would be wrong.
 - **The offset lives in the database** (`episode_processing.window_start_s`), not in a CSV. The
   database is the source of truth for the pipeline state.
 - **The step does not fetch metadata.** Missing duration or anchor data fails with a message;
   `dds sync` is the command that fills metadata.
-- **The expanded window** (last 60 %, capped at 2400 s) is computed and recorded with origin
-  `expanded`, but the extraction step decides when to use it in phase 6.
+- **The expanded window** is **not implemented**. It was considered (last 60 %, capped at 2400 s)
+  but dropped for this version; see `BR-14`.
 
 ## Alternatives considered
 

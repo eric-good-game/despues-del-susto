@@ -81,7 +81,7 @@ without fetching metadata.
 | `anchor` | Find the recommendations section. | Subtitles | Anchor second, kinds, state and evidence in `episode_processing` | Real |
 | `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Real |
 | `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` and `.txt` | Real |
-| `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` | Stub |
+| `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` and recommendation rows | Real |
 | `enrich` | Match each work and fetch its details. | Extractions | `data/enriched/<video_id>.json` | Stub |
 | `publish` | Produce the data the site will read. | Resolved episode | Publication artifact | Stub |
 
@@ -143,6 +143,25 @@ The transcription step sends the audio window to Groq and stores the text with e
   batch stops. Credential and validation errors fail immediately.
 - A transcription with zero segments is a failure, not an empty success.
 - Local `faster-whisper` is not wired yet; it stays as a fallback decision for later.
+
+### Extraction
+
+The extraction step asks a chat model for the recommendations and stores them.
+
+- **Provider:** `PROVIDER` selects `gemini`, `groq` or `opencode`. Each has its own key, model and
+  fallback list; Groq uses `GROQ_CHAT_MODEL` because `GROQ_MODEL` belongs to transcription.
+- **One call per episode**, temperature `0`, with the transcript as `[t=<second>] text` lines.
+- The prompt is in Spanish because the content is Spanish; the JSON keys and values are in English
+  (`type`, `mentioned_title`, `confidence`, `videogame`, `movie`…).
+- Invalid JSON is retried; transient errors are retried with the same 5/15/45/90 second waits; a
+  rate limit or exhausted quota raises `StopBatch` and leaves the step `pending`.
+- The step assigns roles, computes completeness warnings and stores one row per recommendation in
+  the `recommendations` table.
+- Artifact: `data/extractions/<video_id>.json` with the provider, model, `declared_count`,
+  `complete`, `warnings` and the normalized recommendations.
+- `--redo extract` replaces the automatic recommendations of the episode. Manual decisions are not
+  overwritten when review arrives.
+- There is **no expanded-window retry**: an incomplete extraction is recorded and left for review.
 
 ## Orchestration
 

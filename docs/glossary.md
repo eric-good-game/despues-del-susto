@@ -22,14 +22,20 @@ the code or a column in the database.
 | **Evidence** | The subtitle fragment that triggered a detection, stored to review doubtful cases. Internal. |
 | **Window** | The audio section that is downloaded and transcribed: from the window start to the end of the episode. |
 | **Window start** | Second where the downloaded audio begins. It is added to the transcript times to get real episode seconds. |
-| **Window origin** | Why that start was chosen: `anchor`, `fallback` or `expanded`. |
+| **Window origin** | Why that start was chosen: `anchor` or `fallback`. |
 | **Margin** | Seconds downloaded before the anchor so the start of the section is not cut off. It depends on the anchor state. |
 | **Fallback** | The window used when there is no anchor: the last 45 % of the episode, capped at 1500 s. |
-| **Expanded window** | A larger fallback (last 60 %, capped at 2400 s) used only when the extraction is incomplete. |
 | **Transcript** | Text with seconds produced by the transcription step. Stored as JSON and TXT; internal and never published. |
 | **Segment** | One timed line of the transcript: a start second and its text. |
 | **Provider** | External service that performs a job for the pipeline: Groq for transcription, TMDB and IGDB for enrichment. |
 | **Quota** | Usage limit of a free tier. When it is exhausted, the step stops the batch instead of failing every remaining episode. |
+| **Recommendation** | A work mentioned explicitly as a suggestion in an episode. It links one episode with one work. |
+| **Extraction** | The step where the model reads the transcript and returns the recommendations in structured form. |
+| **Role** | `primary` for the expected videogame and movie; `additional` for a series, a book or an extra work. |
+| **Confidence** | The model's certainty about an extracted recommendation: `high`, `medium` or `low`. |
+| **Declared count** | How many recommendations the audio says it has. Used to detect missing ones. |
+| **Completeness** | Whether the episode has the expected primary works. It is recorded as warnings, not as a failure. |
+| **Warning** | A code in the extraction describing a gap, such as `missing_videogame` or `fewer_than_declared`. |
 | **Availability** | Whether an episode is still reachable: `available` or `unavailable`. Missing videos are marked, never deleted. |
 | **Step** | One unit of the per-episode pipeline: `subs`, `anchor`, `audio`, `transcribe`, `extract`, `enrich`, `publish`. |
 | **Processing** | The recorded state of each step for an episode: `pending`, `running`, `done` or `failed`, with timestamps and the last error. |

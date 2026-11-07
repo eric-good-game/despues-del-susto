@@ -18,8 +18,6 @@ measured and adjusted with real episodes.
 | Margin with a `parcial` anchor and a short tail | `420` s | BR-10 |
 | Fallback share when there is no anchor | `0.45` of the episode | BR-11 |
 | Fallback cap | `1500` s | BR-11 |
-| Expanded-window share | `0.60` of the episode | BR-14 |
-| Expanded-window cap | `2400` s | BR-14 |
 | Transcription model | `whisper-large-v3` | BR-16 |
 | Maximum audio upload | 25 MB (provider limit) | BR-19 |
 | Transcription retry waits | 5, 15, 45, 90 s | BR-20 |
@@ -45,8 +43,8 @@ measured and adjusted with real episodes.
 | BR-10 | With a `parcial` anchor, the margin is 240 s. If the tail is shorter than 150 s, the margin is 420 s. | Initial |
 | BR-11 | Without an anchor, the window is the last 45 % of the episode, capped at 1500 s. | Initial |
 | BR-12 | The window start is never below 0, and the window always reaches the end of the episode. | Decision |
-| BR-13 | `window_origin` records why the window was chosen: `anchor`, `fallback` or `expanded`. | Decision |
-| BR-14 | The expanded window is the last 60 % of the episode, capped at 2400 s. It is used only when the extraction is incomplete; its trigger belongs to phase 6. | Initial |
+| BR-13 | `window_origin` records why the window was chosen: `anchor` or `fallback`. | Decision |
+| BR-14 | The expanded window (last 60 %, capped at 2400 s) was considered and is **not implemented**. There is no automatic retry with a larger window in this version. | Decision |
 | BR-15 | Audio is downloaded and kept only for analysis. It is never published, uploaded or shared. | Decision |
 
 ## Transcription
@@ -59,6 +57,21 @@ measured and adjusted with real episodes.
 | BR-19 | One request per episode. If the audio file exceeds the provider's 25 MB limit, the step fails instead of uploading it. | Decision |
 | BR-20 | Transient errors (429, 5xx, timeouts) are retried. A rate limit or exhausted quota after the retries stops the batch and leaves the step `pending`. Credential and validation errors are not retried. | Initial |
 | BR-21 | The step writes a JSON transcript and a human-readable TXT. A transcription with zero segments is a failure. | Decision |
+
+## Extraction
+
+| ID | Rule | Origin |
+|---|---|---|
+| BR-22 | Only an explicit mention of a work as a suggestion counts. Works commented on in passing are not extracted. | Decision |
+| BR-23 | The expected format is 1 videogame and 1 movie; a series, a book or an extra movie are additional works. | Decision |
+| BR-24 | Roles: the first videogame and the first movie are `primary`; everything else is `additional`. If there is no movie, the first series takes the primary place and gets the `series_in_place_of_movie` warning. | Decision |
+| BR-25 | Sequels, spin-offs and related series named alongside a work go to `related_mentions`; they do not create separate rows unless offered as a new recommendation. | Initial |
+| BR-26 | Confidence is `high`, `medium` or `low`. Low confidence is expected to go to review during enrichment. | Initial |
+| BR-27 | When the audio declares a number of recommendations, it is stored as `declared_count`. Extracting fewer adds `fewer_than_declared`. | Initial |
+| BR-28 | The `type` returned by the model is a hypothesis; the final type comes from the enrichment match. | Initial |
+| BR-29 | The extraction and its artifact are internal. They are never published. | Decision |
+| BR-30 | Re-running the step replaces automatic recommendations for the episode. Manual decisions are not overwritten; manual review arrives in a later phase. | Decision |
+| BR-31 | Completeness is recorded as warnings, not as a step failure. No expanded-window retry exists in this version. | Decision |
 
 ## How the initial values are validated
 
@@ -84,3 +97,10 @@ After the first 3 to 5 transcripts, also check:
 - How often proper names come out wrong; that is the error the subtitle cross-check exists for.
 - The elapsed time per episode, to plan batches around the quota.
 - Whether the offsets land on the expected lines when compared with the anchor.
+
+After the first 5 to 10 extractions, also check:
+
+- How many roles are assigned correctly (one game and one movie as primary).
+- How often a work is extracted from a passing mention rather than a recommendation.
+- The distribution of warning codes, especially `missing_videogame` and `missing_movie`.
+- Whether the probable titles are good enough for enrichment to match automatically.
