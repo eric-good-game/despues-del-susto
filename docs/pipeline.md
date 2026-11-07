@@ -117,6 +117,8 @@ recommendations section.
   runs, and the rest follow in order.
 - **Fail fast.** A failing step is marked `failed` with its message, and the run stops. The next
   run resumes at that step; finished steps are not repeated.
+- **Unimplemented steps stop cleanly.** A step with no implementation ends the run, stays
+  `pending` and is never marked `done`, so implementing it later does not require a reset.
 - **Redo invalidates downstream.** `--redo <step>` resets that step and every step after it,
   because their output depends on it. Resetting `anchor`, for example, also resets `audio` and
   everything that follows.

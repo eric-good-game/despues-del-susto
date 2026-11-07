@@ -93,6 +93,16 @@ def _processing(db_path: Path, video_id: str) -> dict:
     return dict(row)
 
 
+def _step_statuses(db_path: Path, video_id: str) -> dict[str, str]:
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT s.step, s.status FROM processing_steps s "
+            "JOIN episodes e ON e.id = s.episode_id WHERE e.video_id = ?",
+            (video_id,),
+        ).fetchall()
+    return dict(rows)
+
+
 def test_version_command_prints_version(invoke) -> None:
     result = invoke("version")
 
@@ -391,6 +401,8 @@ def test_subs_and_anchor_store_the_section(invoke, subtitle_writer, db_path: Pat
     assert row["anchor_s"] == 2900
     assert row["tail_s"] == 692
     assert row["anchor_kinds"] == "intro,juego,peli"
+    assert "audio: not implemented yet" in result.output
+    assert _step_statuses(db_path, "abc")["audio"] == "pending"
 
 
 def test_missing_subtitles_is_a_state_not_a_failure(
@@ -406,6 +418,7 @@ def test_missing_subtitles_is_a_state_not_a_failure(
 
     assert result.exit_code == 0
     assert "subs: done" in result.output
+    assert "audio: not implemented yet" in result.output
     row = _processing(db_path, "abc")
     assert row["subtitles_available"] == 0
     assert row["anchor_state"] == "sin_ancla"

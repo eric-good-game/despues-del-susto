@@ -122,7 +122,12 @@ def ingest(
         else:
             done = sum(1 for outcome in outcomes if outcome.status == "done")
             skipped = sum(1 for outcome in outcomes if outcome.status == "skipped")
-            typer.echo(f"{registered_id}: done {done}, skipped {skipped}")
+            stopped = next(
+                (outcome for outcome in outcomes if outcome.status == "not_implemented"),
+                None,
+            )
+            suffix = f", stopped at {stopped.step} (not implemented)" if stopped else ""
+            typer.echo(f"{registered_id}: done {done}, skipped {skipped}{suffix}")
     if failed:
         raise typer.Exit(code=1)
 
@@ -181,6 +186,8 @@ def _print_outcomes(outcomes: list[StepOutcome]) -> None:
     for outcome in outcomes:
         if outcome.status == "failed":
             typer.echo(f"{outcome.step}: failed — {outcome.detail}", err=True)
+        elif outcome.status == "not_implemented":
+            typer.echo(f"{outcome.step}: not implemented yet")
         else:
             typer.echo(f"{outcome.step}: {outcome.status}")
 

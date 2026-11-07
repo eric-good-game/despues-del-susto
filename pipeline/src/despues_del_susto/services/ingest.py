@@ -7,7 +7,7 @@ from sqlalchemy import select
 from despues_del_susto.config import Settings
 from despues_del_susto.db import Episode, ProcessingStep, ensure_schema, session_scope
 from despues_del_susto.db.models import utcnow
-from despues_del_susto.steps import STEPS, run_step
+from despues_del_susto.steps import STEPS, StepNotImplemented, run_step
 
 
 class UnknownEpisodeError(RuntimeError):
@@ -84,6 +84,14 @@ def ingest_episode(
 
             try:
                 run_step(name, episode, settings)
+            except StepNotImplemented as exc:
+                step.status = "pending"
+                step.started_at = None
+                session.commit()
+                outcomes.append(
+                    StepOutcome(name, "not_implemented", str(exc))
+                )
+                break
             except Exception as exc:  # noqa: BLE001 - recorded and surfaced to the CLI
                 step.status = "failed"
                 step.finished_at = utcnow()
