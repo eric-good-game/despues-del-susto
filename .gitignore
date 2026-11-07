@@ -1,0 +1,22 @@
+# Local environment
+.env
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Local data and artifacts
+data/*
+!data/.gitkeep
+
+# Earlier prototype: reference only
+prev/
+
+# macOS
+.DS_Store
