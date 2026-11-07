@@ -43,6 +43,37 @@ class Episode(Base):
         back_populates="episode",
         cascade="all, delete-orphan",
     )
+    processing: Mapped["EpisodeProcessing | None"] = relationship(
+        back_populates="episode",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+
+
+class EpisodeProcessing(Base):
+    """Data produced by the per-episode steps.
+
+    Separate from ``processing_steps``, which only tracks orchestration state.
+    One row per episode, created by the first step that needs it.
+    """
+
+    __tablename__ = "episode_processing"
+
+    episode_id: Mapped[int] = mapped_column(
+        ForeignKey("episodes.id", ondelete="CASCADE"), primary_key=True
+    )
+    subtitles_available: Mapped[bool] = mapped_column(default=False)
+    subtitles_language: Mapped[str | None] = mapped_column(String(20))
+    anchor_s: Mapped[int | None]
+    anchor_kinds: Mapped[str | None] = mapped_column(String(50))
+    anchor_state: Mapped[str | None] = mapped_column(String(20))
+    anchor_evidence: Mapped[str | None] = mapped_column(String(500))
+    tail_s: Mapped[int | None]
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    episode: Mapped[Episode] = relationship(back_populates="processing")
 
 
 class ProcessingStep(Base):

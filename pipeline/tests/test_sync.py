@@ -9,6 +9,7 @@ from despues_del_susto.services.sync import (
     _parse_upload_date,
     fetch_flat_listing,
 )
+from despues_del_susto.ytdlp import YtDlpError
 
 
 def test_parse_upload_date() -> None:
@@ -21,7 +22,7 @@ def test_parse_upload_date() -> None:
 def test_fetch_flat_listing_skips_duplicates_and_keeps_positions(monkeypatch) -> None:
     monkeypatch.setattr(
         sync_module,
-        "_run_yt_dlp",
+        "run_json",
         lambda settings, arguments: {
             "entries": [
                 {"id": "a", "title": "A"},
@@ -37,35 +38,11 @@ def test_fetch_flat_listing_skips_duplicates_and_keeps_positions(monkeypatch) ->
     assert [(entry.video_id, entry.position) for entry in entries] == [("a", 1), ("b", 3)]
 
 
-def test_run_yt_dlp_raises_when_the_binary_is_missing(monkeypatch) -> None:
-    def missing(*args, **kwargs):
-        raise FileNotFoundError
+def test_fetch_flat_listing_wraps_ytdlp_errors(monkeypatch) -> None:
+    def failing(settings, arguments):
+        raise YtDlpError("video unavailable")
 
-    monkeypatch.setattr(sync_module.subprocess, "run", missing)
-
-    with pytest.raises(SyncError, match="not found"):
-        sync_module._run_yt_dlp(Settings(), ["x"])
-
-
-def test_run_yt_dlp_raises_on_failure(monkeypatch) -> None:
-    class Result:
-        returncode = 1
-        stdout = ""
-        stderr = "ERROR: video unavailable"
-
-    monkeypatch.setattr(sync_module.subprocess, "run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(sync_module, "run_json", failing)
 
     with pytest.raises(SyncError, match="video unavailable"):
-        sync_module._run_yt_dlp(Settings(), ["x"])
-
-
-def test_run_yt_dlp_raises_on_invalid_json(monkeypatch) -> None:
-    class Result:
-        returncode = 0
-        stdout = "not json"
-        stderr = ""
-
-    monkeypatch.setattr(sync_module.subprocess, "run", lambda *args, **kwargs: Result())
-
-    with pytest.raises(SyncError, match="invalid JSON"):
-        sync_module._run_yt_dlp(Settings(), ["x"])
+        fetch_flat_listing(Settings(), "https://example.test/list")

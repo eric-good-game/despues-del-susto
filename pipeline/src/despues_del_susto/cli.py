@@ -13,13 +13,20 @@ from despues_del_susto.services.episodes import (
     add_episode,
     list_status,
 )
-from despues_del_susto.services.ingest import UnknownEpisodeError, ingest_episode
+from despues_del_susto.services.ingest import (
+    StepOutcome,
+    UnknownEpisodeError,
+    UnknownStepError,
+    ingest_all,
+    ingest_episode,
+)
 from despues_del_susto.services.sync import (
     DiscoveryNotConfigured,
     SyncError,
     SyncReport,
     sync_playlist,
 )
+from despues_del_susto.steps import STEPS
 
 app = typer.Typer(
     name="dds",
@@ -71,21 +78,51 @@ def sync(
 
 
 @app.command()
-def ingest(video_id: str = typer.Argument(..., help="YouTube video id.")) -> None:
-    """Run every pipeline step for one episode, skipping finished steps."""
-    try:
-        outcomes = ingest_episode(Settings(), video_id)
-    except UnknownEpisodeError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
+def ingest(
+    video_id: str | None = typer.Argument(None, help="YouTube video id."),
+    all_episodes: bool = typer.Option(
+        False, "--all", help="Process every registered episode."
+    ),
+    redo: str | None = typer.Option(
+        None, "--redo", help="Re-run this step and every step after it."
+    ),
+) -> None:
+    """Run the pipeline steps for one episode, or for all of them with --all."""
+    if redo is not None and redo not in STEPS:
+        typer.echo(f"unknown step {redo}; expected one of: {', '.join(STEPS)}", err=True)
+        raise typer.Exit(code=1)
+    if video_id is None and not all_episodes:
+        typer.echo("pass a video_id or use --all", err=True)
+        raise typer.Exit(code=1)
+    if video_id is not None and all_episodes:
+        typer.echo("pass a video_id or --all, not both", err=True)
+        raise typer.Exit(code=1)
+
+    settings = Settings()
+    if video_id is not None:
+        try:
+            outcomes = ingest_episode(settings, video_id, redo=redo)
+        except (UnknownEpisodeError, UnknownStepError) as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+        _print_outcomes(outcomes)
+        if any(outcome.status == "failed" for outcome in outcomes):
+            raise typer.Exit(code=1)
+        return
 
     failed = False
-    for outcome in outcomes:
-        if outcome.status == "failed":
-            typer.echo(f"{outcome.step}: failed — {outcome.detail}", err=True)
+    for registered_id, outcomes in ingest_all(settings, redo=redo):
+        failed_outcomes = [outcome for outcome in outcomes if outcome.status == "failed"]
+        if failed_outcomes:
             failed = True
+            outcome = failed_outcomes[0]
+            typer.echo(
+                f"{registered_id}: failed at {outcome.step} — {outcome.detail}", err=True
+            )
         else:
-            typer.echo(f"{outcome.step}: {outcome.status}")
+            done = sum(1 for outcome in outcomes if outcome.status == "done")
+            skipped = sum(1 for outcome in outcomes if outcome.status == "skipped")
+            typer.echo(f"{registered_id}: done {done}, skipped {skipped}")
     if failed:
         raise typer.Exit(code=1)
 
@@ -138,6 +175,14 @@ def episode_add(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Added episode {episode.video_id}: {episode.title}")
+
+
+def _print_outcomes(outcomes: list[StepOutcome]) -> None:
+    for outcome in outcomes:
+        if outcome.status == "failed":
+            typer.echo(f"{outcome.step}: failed — {outcome.detail}", err=True)
+        else:
+            typer.echo(f"{outcome.step}: {outcome.status}")
 
 
 def _print_sync_report(report: SyncReport) -> None:

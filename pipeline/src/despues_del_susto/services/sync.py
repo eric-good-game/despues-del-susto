@@ -5,9 +5,7 @@ The playlist is the source of truth for which episodes exist. A sync upserts by
 listing that the safety check accepted.
 """
 
-import json
 import logging
-import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,6 +15,7 @@ from sqlalchemy import select
 from despues_del_susto.config import Settings
 from despues_del_susto.db import Episode, ensure_schema, session_scope
 from despues_del_susto.db.models import utcnow
+from despues_del_susto.ytdlp import YtDlpError, run_json
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +211,10 @@ def _save_metadata_error(settings: Settings, video_id: str, message: str) -> Non
 
 def fetch_flat_listing(settings: Settings, playlist_url: str) -> list[PlaylistEntry]:
     """Read the playlist without per-video extraction."""
-    data = _run_yt_dlp(settings, ["--flat-playlist", playlist_url])
+    try:
+        data = run_json(settings, ["--flat-playlist", playlist_url])
+    except YtDlpError as exc:
+        raise SyncError(str(exc)) from exc
     entries: list[PlaylistEntry] = []
     seen: set[str] = set()
     for index, raw in enumerate(data.get("entries") or [], start=1):
@@ -232,7 +234,10 @@ def fetch_flat_listing(settings: Settings, playlist_url: str) -> list[PlaylistEn
 
 def fetch_full_metadata(settings: Settings, video_id: str) -> FullMetadata:
     """Extract the fields that the flat listing does not provide."""
-    data = _run_yt_dlp(settings, [f"https://www.youtube.com/watch?v={video_id}"])
+    try:
+        data = run_json(settings, [f"https://www.youtube.com/watch?v={video_id}"])
+    except YtDlpError as exc:
+        raise SyncError(str(exc)) from exc
     published_at = _parse_upload_date(data.get("upload_date"))
     duration = data.get("duration")
     return FullMetadata(
@@ -250,30 +255,3 @@ def _parse_upload_date(value: object) -> datetime | None:
     except ValueError:
         return None
 
-
-def _run_yt_dlp(settings: Settings, arguments: list[str]) -> dict:
-    command = [settings.yt_dlp_path, "--no-warnings", "--dump-single-json", *arguments]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=settings.yt_dlp_timeout_s,
-            check=False,
-        )
-    except FileNotFoundError as exc:
-        raise SyncError(
-            f"{settings.yt_dlp_path} not found; install it with `brew install yt-dlp`"
-        ) from exc
-    except subprocess.TimeoutExpired as exc:
-        raise SyncError(f"yt-dlp timed out after {settings.yt_dlp_timeout_s}s") from exc
-
-    if result.returncode != 0:
-        lines = (result.stderr or result.stdout).strip().splitlines()
-        detail = lines[-1] if lines else f"exit code {result.returncode}"
-        raise SyncError(f"yt-dlp failed: {detail}")
-
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise SyncError("yt-dlp returned invalid JSON") from exc

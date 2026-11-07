@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -41,6 +42,55 @@ def network(monkeypatch) -> dict:
     monkeypatch.setattr("despues_del_susto.services.sync.fetch_flat_listing", listing)
     monkeypatch.setattr("despues_del_susto.services.sync.fetch_full_metadata", metadata)
     return state
+
+
+@pytest.fixture
+def step_calls(monkeypatch) -> list[tuple[str, str]]:
+    """Replace the step dispatch with a recorder, so ingest does no real work."""
+    calls: list[tuple[str, str]] = []
+
+    def fake(step, episode, settings):
+        calls.append((step, episode.video_id))
+
+    monkeypatch.setattr("despues_del_susto.services.ingest.run_step", fake)
+    return calls
+
+
+@pytest.fixture
+def subtitle_writer(monkeypatch) -> None:
+    """Fake yt-dlp that writes a Spanish subtitle file with an anchor in it."""
+
+    def fake_run(settings, arguments):
+        video_id = arguments[-1].rsplit("=", 1)[-1]
+        template = arguments[arguments.index("-o") + 1]
+        path = Path(template.replace("%(id)s", video_id).replace("%(ext)s", "es.json3"))
+        path.write_text(json.dumps({"events": _anchor_events()}), encoding="utf-8")
+
+    monkeypatch.setattr("despues_del_susto.steps.subtitles.run_command", fake_run)
+
+
+def _anchor_events() -> list[dict]:
+    def event(start_s: int, text: str) -> dict:
+        return {"tStartMs": start_s * 1000, "dDurationMs": 2000, "segs": [{"utf8": text}]}
+
+    return [
+        event(0, "hola"),
+        event(2900, "tenemos recomendaciones"),
+        event(3000, "que videojuego recomiendas"),
+        event(3100, "recomendacion de pelicula"),
+        event(3590, "gracias"),
+    ]
+
+
+def _processing(db_path: Path, video_id: str) -> dict:
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        row = connection.execute(
+            "SELECT p.* FROM episode_processing p "
+            "JOIN episodes e ON e.id = p.episode_id WHERE e.video_id = ?",
+            (video_id,),
+        ).fetchone()
+    return dict(row)
 
 
 def test_version_command_prints_version(invoke) -> None:
@@ -96,7 +146,7 @@ def test_status_without_episodes_explains_what_to_do(invoke) -> None:
     assert "dds episode add" in result.output
 
 
-def test_ingest_runs_every_step_and_skips_them_on_a_second_run(invoke) -> None:
+def test_ingest_runs_every_step_and_skips_them_on_a_second_run(invoke, step_calls) -> None:
     invoke("episode", "add", "abc123", "--title", "Episode one")
 
     first = invoke("ingest", "abc123")
@@ -274,3 +324,88 @@ def test_sync_retries_failed_metadata(invoke, network, db_path: Path) -> None:
     assert row["metadata_fetched_at"] is not None
     assert row["metadata_error"] is None
     assert network["calls"] == ["aaa", "aaa"]
+
+
+def test_ingest_all_processes_every_episode(invoke, step_calls) -> None:
+    invoke("episode", "add", "aaa", "--title", "A")
+    invoke("episode", "add", "bbb", "--title", "B")
+
+    result = invoke("ingest", "--all")
+
+    assert result.exit_code == 0
+    assert "aaa: done 7, skipped 0" in result.output
+    assert "bbb: done 7, skipped 0" in result.output
+    assert len(step_calls) == 14
+
+
+def test_ingest_redo_resets_the_step_and_everything_after_it(invoke, step_calls) -> None:
+    invoke("episode", "add", "abc", "--title", "E")
+    invoke("ingest", "abc")
+    step_calls.clear()
+
+    result = invoke("ingest", "abc", "--redo", "anchor")
+
+    assert result.exit_code == 0
+    assert step_calls == [
+        ("anchor", "abc"),
+        ("audio", "abc"),
+        ("transcribe", "abc"),
+        ("extract", "abc"),
+        ("enrich", "abc"),
+        ("publish", "abc"),
+    ]
+    assert "subs: skipped" in result.output
+
+
+def test_ingest_rejects_unknown_redo_steps(invoke) -> None:
+    result = invoke("ingest", "abc", "--redo", "nope")
+
+    assert result.exit_code == 1
+    assert "unknown step" in result.output
+
+
+def test_ingest_requires_an_episode_or_all(invoke) -> None:
+    result = invoke("ingest")
+
+    assert result.exit_code == 1
+    assert "pass a video_id" in result.output
+
+
+def test_ingest_all_and_a_video_id_are_exclusive(invoke) -> None:
+    result = invoke("ingest", "abc", "--all")
+
+    assert result.exit_code == 1
+    assert "not both" in result.output
+
+
+def test_subs_and_anchor_store_the_section(invoke, subtitle_writer, db_path: Path) -> None:
+    invoke("episode", "add", "abc", "--title", "E")
+
+    result = invoke("ingest", "abc")
+
+    assert result.exit_code == 0
+    row = _processing(db_path, "abc")
+    assert row["subtitles_available"] == 1
+    assert row["subtitles_language"] == "es"
+    assert row["anchor_state"] == "ok"
+    assert row["anchor_s"] == 2900
+    assert row["tail_s"] == 692
+    assert row["anchor_kinds"] == "intro,juego,peli"
+
+
+def test_missing_subtitles_is_a_state_not_a_failure(
+    invoke, monkeypatch, db_path: Path
+) -> None:
+    def no_files(settings, arguments):
+        return None
+
+    monkeypatch.setattr("despues_del_susto.steps.subtitles.run_command", no_files)
+    invoke("episode", "add", "abc", "--title", "E")
+
+    result = invoke("ingest", "abc")
+
+    assert result.exit_code == 0
+    assert "subs: done" in result.output
+    row = _processing(db_path, "abc")
+    assert row["subtitles_available"] == 0
+    assert row["anchor_state"] == "sin_ancla"
