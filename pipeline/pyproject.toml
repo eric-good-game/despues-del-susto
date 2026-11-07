@@ -9,6 +9,7 @@ description = "Local pipeline that catalogs the works recommended by the Tengo M
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.13",
+    "openai>=1.0",
     "pydantic-settings>=2.3",
     "rich>=13",
     "sqlalchemy>=2.0",

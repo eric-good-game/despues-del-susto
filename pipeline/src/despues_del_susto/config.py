@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     audio_quality: str = "48K"
     audio_timeout_s: int = 600
 
+    # Transcription
+    transcribe_timeout_s: float = 300.0
+
     @property
     def db_path(self) -> Path:
         """Where the SQLite database lives."""
@@ -44,3 +47,20 @@ class Settings(BaseSettings):
     def database_url(self) -> str:
         """SQLAlchemy URL for the local database."""
         return f"sqlite:///{self.db_path}"
+
+
+class GroqSettings(BaseSettings):
+    """Groq credentials, read without the ``DDS_`` prefix.
+
+    ``GROQ_API_KEY`` and ``GROQ_MODEL`` are the names the previous prototype and
+    the user's ``.env`` already use.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    groq_api_key: str = ""
+    groq_model: str = "whisper-large-v3"

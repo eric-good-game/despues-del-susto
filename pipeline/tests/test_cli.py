@@ -6,7 +6,8 @@ import pytest
 
 from despues_del_susto import __version__
 from despues_del_susto.services.sync import FullMetadata, PlaylistEntry, SyncError
-from despues_del_susto.steps import StopBatch
+from despues_del_susto.steps import StopBatch, target_step
+from despues_del_susto.steps.transcribe import Segment, TranscriptionResult
 
 
 def _entry(video_id: str, title: str, position: int) -> PlaylistEntry:
@@ -84,6 +85,20 @@ def audio_writer(monkeypatch) -> dict:
 
     monkeypatch.setattr("despues_del_susto.steps.audio.run_command", fake_run)
     return state
+
+
+@pytest.fixture
+def transcriber(monkeypatch) -> None:
+    """Replace the Groq call with two segments, no network."""
+
+    def fake(settings, audio_path):
+        return TranscriptionResult(
+            segments=[Segment(0.0, "hola"), Segment(10.0, "mundo")],
+            service="groq",
+            model="test-model",
+        )
+
+    monkeypatch.setattr("despues_del_susto.steps.transcribe.transcribe_audio", fake)
 
 
 def _set_duration(db_path: Path, video_id: str, seconds: int) -> None:
@@ -414,7 +429,7 @@ def test_ingest_all_and_a_video_id_are_exclusive(invoke) -> None:
 
 
 def test_subs_and_anchor_store_the_section(
-    invoke, subtitle_writer, audio_writer, db_path: Path
+    invoke, subtitle_writer, audio_writer, transcriber, db_path: Path
 ) -> None:
     invoke("episode", "add", "abc", "--title", "E")
     _set_duration(db_path, "abc", 3600)
@@ -431,15 +446,27 @@ def test_subs_and_anchor_store_the_section(
     assert row["anchor_kinds"] == "intro,juego,peli"
     assert row["window_start_s"] == 2810
     assert row["window_origin"] == "anchor"
+    assert row["transcription_service"] == "groq"
+    assert row["transcription_model"] == "test-model"
+    assert row["transcribed_at"] is not None
     assert audio_writer["starts"] == ["*2810-inf"]
     assert "audio: done" in result.output
-    assert "transcribe: not implemented yet" in result.output
-    assert _step_statuses(db_path, "abc")["audio"] == "done"
-    assert _step_statuses(db_path, "abc")["transcribe"] == "pending"
+    assert "transcribe: done" in result.output
+    assert "extract: not implemented yet" in result.output
+    assert _step_statuses(db_path, "abc")["transcribe"] == "done"
+    assert _step_statuses(db_path, "abc")["extract"] == "pending"
+
+    transcript = json.loads(
+        (db_path.parent / "transcripts" / "abc.json").read_text(encoding="utf-8")
+    )
+    assert transcript == [
+        {"t": 2810, "text": "hola"},
+        {"t": 2820, "text": "mundo"},
+    ]
 
 
 def test_missing_subtitles_is_a_state_not_a_failure(
-    invoke, monkeypatch, audio_writer, db_path: Path
+    invoke, monkeypatch, audio_writer, transcriber, db_path: Path
 ) -> None:
     def no_files(settings, arguments):
         return None
@@ -453,11 +480,17 @@ def test_missing_subtitles_is_a_state_not_a_failure(
     assert result.exit_code == 0
     assert "subs: done" in result.output
     assert "audio: done" in result.output
+    assert "transcribe: done" in result.output
     row = _processing(db_path, "abc")
     assert row["subtitles_available"] == 0
     assert row["anchor_state"] == "sin_ancla"
     assert row["window_start_s"] == 2100
     assert row["window_origin"] == "fallback"
+
+    transcript = json.loads(
+        (db_path.parent / "transcripts" / "abc.json").read_text(encoding="utf-8")
+    )
+    assert [entry["t"] for entry in transcript] == [2100, 2110]
 
 
 def test_ingest_limit_processes_only_the_requested_batch(invoke, step_calls) -> None:
@@ -469,7 +502,7 @@ def test_ingest_limit_processes_only_the_requested_batch(invoke, step_calls) -> 
     assert result.exit_code == 0
     assert len({video_id for _, video_id in step_calls}) == 2
     assert "Batch: 2 processed" in result.output
-    assert "1 pending for audio" in result.output
+    assert f"1 pending for {target_step()}" in result.output
 
 
 def test_ingest_limit_requires_all(invoke) -> None:

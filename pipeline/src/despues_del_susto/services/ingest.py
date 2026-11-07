@@ -13,6 +13,7 @@ from despues_del_susto.steps import (
     STEPS,
     StepNotImplemented,
     StopBatch,
+    is_implemented,
     run_step,
     target_step,
 )
@@ -96,7 +97,8 @@ def ingest_episode(
             step.finished_at = None
             step.error = None
             session.commit()
-            progress.step_started(episode.video_id, name)
+            if is_implemented(name):
+                progress.step_started(episode.video_id, name)
             started = monotonic()
 
             try:

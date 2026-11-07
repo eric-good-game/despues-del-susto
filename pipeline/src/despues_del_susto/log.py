@@ -9,6 +9,7 @@ def configure_logging(level: str = "INFO", verbose: bool = False) -> None:
     """Configure root logging once, at the level the command asked for."""
     effective = "DEBUG" if verbose else level.upper()
     stdlib_logging.basicConfig(level=effective, format=_FORMAT)
-    # Migrations run on every command; their routine INFO lines are noise.
-    stdlib_logging.getLogger("alembic").setLevel(stdlib_logging.WARNING)
+    # Routine lines from migrations and HTTP clients are noise in the CLI.
+    for noisy in ("alembic", "httpx", "httpx2", "openai"):
+        stdlib_logging.getLogger(noisy).setLevel(stdlib_logging.WARNING)
 

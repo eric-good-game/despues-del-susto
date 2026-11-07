@@ -71,6 +71,9 @@ class EpisodeProcessing(Base):
     tail_s: Mapped[int | None]
     window_start_s: Mapped[int | None]
     window_origin: Mapped[str | None] = mapped_column(String(20))
+    transcription_service: Mapped[str | None] = mapped_column(String(20))
+    transcription_model: Mapped[str | None] = mapped_column(String(50))
+    transcribed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
