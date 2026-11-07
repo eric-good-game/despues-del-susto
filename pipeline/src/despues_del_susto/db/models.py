@@ -48,6 +48,10 @@ class Episode(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    recommendations: Mapped[list["Recommendation"]] = relationship(
+        back_populates="episode",
+        cascade="all, delete-orphan",
+    )
 
 
 class EpisodeProcessing(Base):
@@ -74,11 +78,47 @@ class EpisodeProcessing(Base):
     transcription_service: Mapped[str | None] = mapped_column(String(20))
     transcription_model: Mapped[str | None] = mapped_column(String(50))
     transcribed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    extraction_model: Mapped[str | None] = mapped_column(String(50))
+    extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    declared_count: Mapped[int | None]
+    extraction_complete: Mapped[bool | None]
+    extraction_warnings: Mapped[str | None] = mapped_column(String(500))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
 
     episode: Mapped[Episode] = relationship(back_populates="processing")
+
+
+class Recommendation(Base):
+    """A work mentioned as a recommendation in one episode."""
+
+    __tablename__ = "recommendations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    episode_id: Mapped[int] = mapped_column(
+        ForeignKey("episodes.id", ondelete="CASCADE"), index=True
+    )
+    #: Resolved in phase 7, when the ``works`` table exists.
+    work_id: Mapped[int | None]
+    type: Mapped[str] = mapped_column(String(20))
+    role: Mapped[str] = mapped_column(String(20))
+    state: Mapped[str] = mapped_column(String(20), default="extracted")
+    mentioned_title: Mapped[str] = mapped_column(String(500))
+    probable_title: Mapped[str | None] = mapped_column(String(500))
+    related_mentions: Mapped[str | None] = mapped_column(String(1000))
+    confidence: Mapped[str] = mapped_column(String(10))
+    mention_s: Mapped[int | None]
+    mentioned_platform: Mapped[str | None] = mapped_column(String(200))
+    decided_by: Mapped[str] = mapped_column(String(10), default="automatic")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    episode: Mapped[Episode] = relationship(back_populates="recommendations")
 
 
 class ProcessingStep(Base):

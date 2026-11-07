@@ -18,8 +18,6 @@ SHORT_TAIL_S = 150
 MARGIN_SHORT_TAIL_S = 420
 FALLBACK_RATIO = 0.45
 FALLBACK_MAX_S = 1500
-EXPANDED_RATIO = 0.60
-EXPANDED_MAX_S = 2400
 
 
 class AudioError(RuntimeError):
@@ -46,15 +44,10 @@ def compute_window(
     anchor_s: int | None,
     tail_s: int | None,
     duration_s: int | None,
-    expanded: bool = False,
 ) -> Window:
     """Apply the window rules to one episode."""
     if duration_s is None or duration_s <= 0:
         raise AudioWindowError("episode duration is unknown; run `dds sync` first")
-
-    if expanded:
-        length = min(EXPANDED_MAX_S, round(duration_s * EXPANDED_RATIO))
-        return Window(start_s=max(0, duration_s - length), origin="expanded")
 
     if anchor_state == "ok":
         if anchor_s is None:

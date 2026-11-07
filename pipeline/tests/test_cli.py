@@ -7,6 +7,7 @@ import pytest
 from despues_del_susto import __version__
 from despues_del_susto.services.sync import FullMetadata, PlaylistEntry, SyncError
 from despues_del_susto.steps import StopBatch, target_step
+from despues_del_susto.steps.extract import ExtractionResult, RecommendationDraft
 from despues_del_susto.steps.transcribe import Segment, TranscriptionResult
 
 
@@ -99,6 +100,42 @@ def transcriber(monkeypatch) -> None:
         )
 
     monkeypatch.setattr("despues_del_susto.steps.transcribe.transcribe_audio", fake)
+
+
+@pytest.fixture
+def extractor(monkeypatch) -> None:
+    """Replace the LLM call with one videogame and one movie, no network."""
+
+    def fake(settings, transcript_text, video_id):
+        return ExtractionResult(
+            provider="fake",
+            model="fake-model",
+            declared_count=2,
+            recommendations=[
+                RecommendationDraft(
+                    type="videogame",
+                    mentioned_title="Juego",
+                    probable_title="Game",
+                    related_mentions=None,
+                    mention_s=2900,
+                    mentioned_platform="Steam",
+                    confidence="high",
+                ),
+                RecommendationDraft(
+                    type="movie",
+                    mentioned_title="Peli",
+                    probable_title="Movie",
+                    related_mentions=None,
+                    mention_s=3000,
+                    mentioned_platform=None,
+                    confidence="medium",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        "despues_del_susto.steps.extract.request_extraction", fake
+    )
 
 
 def _set_duration(db_path: Path, video_id: str, seconds: int) -> None:
@@ -429,7 +466,7 @@ def test_ingest_all_and_a_video_id_are_exclusive(invoke) -> None:
 
 
 def test_subs_and_anchor_store_the_section(
-    invoke, subtitle_writer, audio_writer, transcriber, db_path: Path
+    invoke, subtitle_writer, audio_writer, transcriber, extractor, db_path: Path
 ) -> None:
     invoke("episode", "add", "abc", "--title", "E")
     _set_duration(db_path, "abc", 3600)
@@ -449,12 +486,18 @@ def test_subs_and_anchor_store_the_section(
     assert row["transcription_service"] == "groq"
     assert row["transcription_model"] == "test-model"
     assert row["transcribed_at"] is not None
+    assert row["extraction_model"] == "fake-model"
+    assert row["extracted_at"] is not None
+    assert row["declared_count"] == 2
+    assert row["extraction_complete"] == 1
+    assert row["extraction_warnings"] is None
     assert audio_writer["starts"] == ["*2810-inf"]
     assert "audio: done" in result.output
     assert "transcribe: done" in result.output
-    assert "extract: not implemented yet" in result.output
-    assert _step_statuses(db_path, "abc")["transcribe"] == "done"
-    assert _step_statuses(db_path, "abc")["extract"] == "pending"
+    assert "extract: done" in result.output
+    assert "enrich: not implemented yet" in result.output
+    assert _step_statuses(db_path, "abc")["extract"] == "done"
+    assert _step_statuses(db_path, "abc")["enrich"] == "pending"
 
     transcript = json.loads(
         (db_path.parent / "transcripts" / "abc.json").read_text(encoding="utf-8")
@@ -464,9 +507,38 @@ def test_subs_and_anchor_store_the_section(
         {"t": 2820, "text": "mundo"},
     ]
 
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        recommendations = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM recommendations "
+                "WHERE episode_id = (SELECT id FROM episodes WHERE video_id = 'abc') "
+                "ORDER BY id"
+            )
+        ]
+    assert len(recommendations) == 2
+    assert recommendations[0]["type"] == "videogame"
+    assert recommendations[0]["role"] == "primary"
+    assert recommendations[0]["state"] == "extracted"
+    assert recommendations[0]["decided_by"] == "automatic"
+    assert recommendations[1]["type"] == "movie"
+    assert recommendations[1]["role"] == "primary"
+
+    artifact = json.loads(
+        (db_path.parent / "extractions" / "abc.json").read_text(encoding="utf-8")
+    )
+    assert artifact["complete"] is True
+    assert artifact["warnings"] == []
+    assert artifact["model"] == "fake-model"
+    assert [item["role"] for item in artifact["recommendations"]] == [
+        "primary",
+        "primary",
+    ]
+
 
 def test_missing_subtitles_is_a_state_not_a_failure(
-    invoke, monkeypatch, audio_writer, transcriber, db_path: Path
+    invoke, monkeypatch, audio_writer, transcriber, extractor, db_path: Path
 ) -> None:
     def no_files(settings, arguments):
         return None
@@ -481,6 +553,8 @@ def test_missing_subtitles_is_a_state_not_a_failure(
     assert "subs: done" in result.output
     assert "audio: done" in result.output
     assert "transcribe: done" in result.output
+    assert "extract: done" in result.output
+    assert "enrich: not implemented yet" in result.output
     row = _processing(db_path, "abc")
     assert row["subtitles_available"] == 0
     assert row["anchor_state"] == "sin_ancla"

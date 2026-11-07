@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -38,6 +39,9 @@ class Settings(BaseSettings):
     # Transcription
     transcribe_timeout_s: float = 300.0
 
+    # Extraction
+    extract_timeout_s: float = 180.0
+
     @property
     def db_path(self) -> Path:
         """Where the SQLite database lives."""
@@ -64,3 +68,34 @@ class GroqSettings(BaseSettings):
 
     groq_api_key: str = ""
     groq_model: str = "whisper-large-v3"
+
+
+class LlmSettings(BaseSettings):
+    """Chat provider for recommendation extraction.
+
+    The provider is selected with ``PROVIDER``. Groq uses ``GROQ_CHAT_MODEL`` for
+    chat, because ``GROQ_MODEL`` belongs to transcription.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    provider: str = "gemini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_fallback_models: str = ""
+    groq_api_key: str = ""
+    groq_chat_model: str = "llama-3.3-70b-versatile"
+    groq_chat_fallback_models: str = ""
+    opencode_api_key: str = ""
+    opencode_model: str = ""
+    opencode_fallback_models: str = ""
+    opencode_base_url: str = "https://opencode.ai/inference/go/openai/v1"
+
+    @field_validator("provider", mode="before")
+    @classmethod
+    def _clean_provider(cls, value: object) -> str:
+        return str(value).split("#", 1)[0].strip().lower()

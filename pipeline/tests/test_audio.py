@@ -12,13 +12,12 @@ from despues_del_susto.steps.audio import (
 )
 
 
-def _window(anchor_state, anchor_s, tail_s, duration_s, expanded=False):
+def _window(anchor_state, anchor_s, tail_s, duration_s):
     return compute_window(
         anchor_state=anchor_state,
         anchor_s=anchor_s,
         tail_s=tail_s,
         duration_s=duration_s,
-        expanded=expanded,
     )
 
 
@@ -48,14 +47,6 @@ def test_without_anchor_uses_the_last_45_percent() -> None:
 
 def test_without_anchor_caps_the_fallback() -> None:
     assert _window("sin_ancla", None, None, 4000) == Window(2500, "fallback")
-
-
-def test_expanded_uses_the_last_60_percent() -> None:
-    assert _window("ok", 3000, 600, 3600, expanded=True) == Window(1440, "expanded")
-
-
-def test_expanded_caps_the_window() -> None:
-    assert _window("ok", 3000, 600, 5000, expanded=True) == Window(2600, "expanded")
 
 
 def test_unknown_duration_is_an_error() -> None:
