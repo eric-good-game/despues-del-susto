@@ -14,7 +14,12 @@ from despues_del_susto.services.episodes import (
     list_status,
 )
 from despues_del_susto.services.ingest import UnknownEpisodeError, ingest_episode
-from despues_del_susto.services.sync import DiscoveryNotConfigured, sync_playlist
+from despues_del_susto.services.sync import (
+    DiscoveryNotConfigured,
+    SyncError,
+    SyncReport,
+    sync_playlist,
+)
 
 app = typer.Typer(
     name="dds",
@@ -47,17 +52,22 @@ def sync(
     playlist_url: str | None = typer.Option(
         None, "--playlist-url", help="YouTube playlist URL; overrides DDS_PLAYLIST_URL."
     ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show what would change without writing anything."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Apply the listing even if it looks truncated."
+    ),
 ) -> None:
-    """Discover episodes in the podcast playlist (implemented in phase 2)."""
+    """Discover episodes in the playlist and refresh their metadata."""
     try:
-        episodes = sync_playlist(Settings(), playlist_url)
-    except DiscoveryNotConfigured as exc:
+        report = sync_playlist(
+            Settings(), playlist_url, dry_run=dry_run, force=force
+        )
+    except (DiscoveryNotConfigured, SyncError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
-    except NotImplementedError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"{len(episodes)} episodes discovered")
+    _print_sync_report(report)
 
 
 @app.command()
@@ -128,3 +138,29 @@ def episode_add(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Added episode {episode.video_id}: {episode.title}")
+
+
+def _print_sync_report(report: SyncReport) -> None:
+    if report.dry_run:
+        typer.echo("Dry run: nothing was written.")
+    typer.echo(f"added: {len(report.added)}")
+    for video_id in report.added:
+        typer.echo(f"  + {video_id}")
+    typer.echo(f"updated: {len(report.updated)}")
+    for video_id in report.updated:
+        typer.echo(f"  ~ {video_id}")
+    typer.echo(f"unavailable: {len(report.unavailable)}")
+    for video_id in report.unavailable:
+        typer.echo(f"  - {video_id}")
+    typer.echo(f"reactivated: {len(report.reactivated)}")
+    for video_id in report.reactivated:
+        typer.echo(f"  + {video_id}")
+    typer.echo(f"unchanged: {report.unchanged}")
+    if report.dry_run and report.metadata_pending:
+        typer.echo(f"metadata pending: {len(report.metadata_pending)}")
+    if report.metadata_fetched:
+        typer.echo(f"metadata fetched: {len(report.metadata_fetched)}")
+    if report.metadata_failed:
+        typer.echo(f"metadata failed: {len(report.metadata_failed)}", err=True)
+        for video_id, error in report.metadata_failed.items():
+            typer.echo(f"  ! {video_id}: {error}", err=True)

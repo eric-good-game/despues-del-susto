@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     playlist_url: str = ""
     log_level: str = "INFO"
 
+    # Episode discovery
+    yt_dlp_path: str = "yt-dlp"
+    yt_dlp_timeout_s: int = 120
+    sync_delay_s: float = 2.0
+    sync_min_ratio: float = 0.5
+
     @property
     def db_path(self) -> Path:
         """Where the SQLite database lives."""

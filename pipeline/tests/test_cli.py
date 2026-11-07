@@ -1,7 +1,46 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from despues_del_susto import __version__
+from despues_del_susto.services.sync import FullMetadata, PlaylistEntry, SyncError
+
+
+def _entry(video_id: str, title: str, position: int) -> PlaylistEntry:
+    return PlaylistEntry(video_id=video_id, title=title, position=position)
+
+
+def _episodes(db_path: Path) -> dict[str, dict]:
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        return {
+            row["video_id"]: dict(row)
+            for row in connection.execute("SELECT * FROM episodes")
+        }
+
+
+@pytest.fixture
+def network(monkeypatch) -> dict:
+    """Fake yt-dlp: a configurable playlist and metadata responses, no network."""
+    state: dict = {"entries": [], "metadata": {}, "calls": [], "failing": set()}
+
+    def listing(settings, url):
+        return list(state["entries"])
+
+    def metadata(settings, video_id):
+        state["calls"].append(video_id)
+        if video_id in state["failing"]:
+            raise SyncError("boom")
+        return state["metadata"].get(video_id) or FullMetadata(
+            published_at=None,
+            duration_s=100,
+            thumbnail_url=None,
+        )
+
+    monkeypatch.setattr("despues_del_susto.services.sync.fetch_flat_listing", listing)
+    monkeypatch.setattr("despues_del_susto.services.sync.fetch_full_metadata", metadata)
+    return state
 
 
 def test_version_command_prints_version(invoke) -> None:
@@ -107,11 +146,131 @@ def test_ingest_stops_at_a_failure_and_resumes_from_there(invoke, monkeypatch) -
     assert calls == ["audio", "transcribe", "extract", "enrich", "publish"]
 
 
-def test_sync_requires_a_playlist_and_is_still_a_stub(invoke) -> None:
-    without_url = invoke("sync")
-    assert without_url.exit_code == 1
-    assert "DDS_PLAYLIST_URL" in without_url.output
+def test_sync_requires_a_playlist(invoke) -> None:
+    result = invoke("sync")
 
-    with_url = invoke("sync", "--playlist-url", "https://www.youtube.com/playlist?list=x")
-    assert with_url.exit_code == 1
-    assert "phase 2" in with_url.output
+    assert result.exit_code == 1
+    assert "DDS_PLAYLIST_URL" in result.output
+
+
+def test_sync_adds_episodes_and_fetches_metadata(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "Flat A", 1), _entry("bbb", "Flat B", 2)]
+
+    result = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 0
+    assert "added: 2" in result.output
+    rows = _episodes(db_path)
+    assert set(rows) == {"aaa", "bbb"}
+    assert rows["aaa"]["title"] == "Flat A"
+    assert rows["aaa"]["availability"] == "available"
+    assert rows["aaa"]["metadata_fetched_at"] is not None
+    assert network["calls"] == ["aaa", "bbb"]
+
+
+def test_sync_is_idempotent(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "A", 1), _entry("bbb", "B", 2)]
+    invoke("sync", "--playlist-url", "https://example.test/list")
+    network["calls"].clear()
+
+    second = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert second.exit_code == 0
+    assert "unchanged: 2" in second.output
+    assert network["calls"] == []
+
+
+def test_sync_updates_title_and_position(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "A", 1)]
+    invoke("sync", "--playlist-url", "https://example.test/list")
+
+    network["entries"] = [_entry("aaa", "A renamed", 3)]
+    result = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert "updated: 1" in result.output
+    row = _episodes(db_path)["aaa"]
+    assert row["title"] == "A renamed"
+    assert row["playlist_position"] == 3
+
+
+def test_sync_marks_missing_unavailable_and_reactivates(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "A", 1), _entry("bbb", "B", 2)]
+    invoke("sync", "--playlist-url", "https://example.test/list")
+
+    network["entries"] = [_entry("aaa", "A", 1)]
+    removed = invoke("sync", "--playlist-url", "https://example.test/list")
+    assert "unavailable: 1" in removed.output
+    assert _episodes(db_path)["bbb"]["availability"] == "unavailable"
+
+    network["entries"] = [_entry("aaa", "A", 1), _entry("bbb", "B", 2)]
+    restored = invoke("sync", "--playlist-url", "https://example.test/list")
+    assert "reactivated: 1" in restored.output
+    assert _episodes(db_path)["bbb"]["availability"] == "available"
+
+
+def _seed_four(invoke) -> None:
+    for video_id in ("a", "b", "c", "d"):
+        assert invoke("episode", "add", video_id, "--title", video_id).exit_code == 0
+
+
+def test_sync_refuses_a_truncated_listing(invoke, network, db_path: Path) -> None:
+    _seed_four(invoke)
+    network["entries"] = [_entry("a", "A", 1)]
+
+    result = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 1
+    assert "known episodes" in result.output
+    assert all(row["availability"] == "available" for row in _episodes(db_path).values())
+
+
+def test_sync_force_accepts_a_truncated_listing(invoke, network, db_path: Path) -> None:
+    _seed_four(invoke)
+    network["entries"] = [_entry("a", "A", 1)]
+
+    result = invoke("sync", "--force", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 0
+    assert "unavailable: 3" in result.output
+
+
+def test_sync_aborts_on_an_empty_listing(invoke, network, db_path: Path) -> None:
+    network["entries"] = []
+
+    result = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 1
+    assert "no entries" in result.output
+    assert not db_path.exists()
+
+
+def test_sync_dry_run_writes_nothing(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "A", 1)]
+
+    result = invoke("sync", "--dry-run", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 0
+    assert "Dry run" in result.output
+    assert "added: 1" in result.output
+    assert _episodes(db_path) == {}
+    assert network["calls"] == []
+
+
+def test_sync_retries_failed_metadata(invoke, network, db_path: Path) -> None:
+    network["entries"] = [_entry("aaa", "A", 1)]
+    network["failing"].add("aaa")
+
+    first = invoke("sync", "--playlist-url", "https://example.test/list")
+    assert first.exit_code == 0
+    assert "metadata failed: 1" in first.output
+    row = _episodes(db_path)["aaa"]
+    assert row["metadata_fetched_at"] is None
+    assert row["metadata_error"] == "boom"
+
+    network["failing"].clear()
+    second = invoke("sync", "--playlist-url", "https://example.test/list")
+    assert "metadata fetched: 1" in second.output
+    row = _episodes(db_path)["aaa"]
+    assert row["metadata_fetched_at"] is not None
+    assert row["metadata_error"] is None
+    assert network["calls"] == ["aaa", "aaa"]

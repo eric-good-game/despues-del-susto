@@ -20,6 +20,7 @@ def env(tmp_path: Path) -> dict[str, str]:
         "DDS_DATABASE_PATH": str(data_dir / "test.db"),
         "DDS_LOG_LEVEL": "WARNING",
         "DDS_PLAYLIST_URL": "",
+        "DDS_SYNC_DELAY_S": "0",
     }
 
 

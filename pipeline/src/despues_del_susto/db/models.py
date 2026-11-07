@@ -32,6 +32,9 @@ class Episode(Base):
     playlist_position: Mapped[int | None]
     availability: Mapped[str] = mapped_column(String(20), default="available")
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metadata_error: Mapped[str | None] = mapped_column(String(2000))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
