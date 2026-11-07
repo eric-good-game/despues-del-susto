@@ -75,15 +75,41 @@ without fetching metadata.
 
 ## Per-episode steps
 
-| Step | Purpose | Input | Output | Phase 1 |
+| Step | Purpose | Input | Output | Status |
 |---|---|---|---|---|
-| `subs` | Get the automatic subtitles. | `video_id` | `data/subs/<video_id>.<lang>.json3` | Stub |
-| `anchor` | Find the recommendations section. | Subtitles | Anchor second, kind and state, stored in the database | Stub |
+| `subs` | Get the automatic subtitles. | `video_id` | `data/subs/<video_id>.<lang>.json3` | Real |
+| `anchor` | Find the recommendations section. | Subtitles | Anchor second, kinds, state and evidence in `episode_processing` | Real |
 | `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Stub |
 | `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` | Stub |
 | `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` | Stub |
 | `enrich` | Match each work and fetch its details. | Extractions | `data/enriched/<video_id>.json` | Stub |
 | `publish` | Produce the data the site will read. | Resolved episode | Publication artifact | Stub |
+
+### Subtitles
+
+`yt-dlp --skip-download --write-auto-subs --sub-format json3 --sub-langs "es.*"` downloads the
+automatic Spanish captions into `data/subs/`. Only automatic captions are used, and only in
+`json3`, because that is the format the anchor step parses.
+
+- **One language per episode.** If several Spanish variants arrive, the preferred one wins
+  (`es`, `es-orig`, `es-419`, `es-mx`, `es-es`, then any other `es*`), and the rest are deleted.
+- **No subtitles is a state, not a failure.** The step records `subtitles_available = false` and
+  finishes. The audio step will use its fallback window.
+- **A yt-dlp failure is a failure.** The step is marked `failed` and the run stops, so the
+  episode can be retried.
+
+### Anchor
+
+The anchor step reads the preferred subtitle file and looks for the sentence that opens the
+recommendations section.
+
+- It drops the repeated lines that YouTube's rolling captions produce before matching. Without
+  that, the same sentence appears several times with growing prefixes.
+- Text is normalized (lowercase, no accents) before matching. The patterns are in
+  `steps/anchor.py`; the rules and thresholds are in [`rules.md`](rules.md).
+- It stores `anchor_s`, `anchor_kinds`, `anchor_state`, `tail_s` and `anchor_evidence`. The
+  evidence is internal: it exists to review a doubtful detection, never to publish.
+- If there is no subtitle file, the result is `sin_ancla` and the step still succeeds.
 
 ## Orchestration
 
@@ -91,6 +117,11 @@ without fetching metadata.
   runs, and the rest follow in order.
 - **Fail fast.** A failing step is marked `failed` with its message, and the run stops. The next
   run resumes at that step; finished steps are not repeated.
+- **Redo invalidates downstream.** `--redo <step>` resets that step and every step after it,
+  because their output depends on it. Resetting `anchor`, for example, also resets `audio` and
+  everything that follows.
+- **Batch keeps going.** `--all` processes every episode in playlist order and does not stop at
+  the first failure; it reports each episode and exits with `1` if any failed.
 - **One state per step.** Starting a step sets `running`; finishing sets `done` or `failed`.
 - **No hidden network calls.** Commands only do the work of their own step. `ingest` never syncs,
   and `sync` never ingests.
@@ -122,5 +153,7 @@ state is what decides whether it runs again.
 | `dds sync` | Set-level discovery. |
 | `dds episode add <video_id> --title ...` | Manual registration, no network. |
 | `dds ingest <video_id>` | Runs the seven steps, resuming where needed. |
+| `dds ingest <video_id> --redo <step>` | Resets that step and every later one, then runs. |
+| `dds ingest --all` | Runs every registered episode, in playlist order. |
 | `dds status` | Reads the database and prints one row per episode. |
 | `dds db upgrade` | Applies migrations. Every other command does this implicitly. |

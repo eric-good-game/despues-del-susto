@@ -1,7 +1,7 @@
 # Data model
 
-Phase 1 defines only the tables the walking skeleton needs. Each later phase adds its own tables
-through an Alembic migration; this document grows with them.
+This document describes the tables that exist today. Each phase adds its own through an Alembic
+migration; the document grows with them.
 
 Timestamps are stored in UTC.
 
@@ -39,6 +39,26 @@ One row per episode and step. It is what makes runs resumable and idempotent.
 | `finished_at` | timestamp, nullable | Set when it ends, successfully or not. |
 | `error` | text, nullable | Last failure message, truncated to 2000 characters. |
 
+## `episode_processing`
+
+One row per episode, created by the first step that needs it. It holds what the steps produce,
+as opposed to `processing_steps`, which only tracks orchestration.
+
+| Column | Type | Notes |
+|---|---|---|
+| `episode_id` | integer, primary key, foreign key → `episodes.id` | One row per episode. |
+| `subtitles_available` | boolean | Whether an automatic subtitle file was found. |
+| `subtitles_language` | text, nullable | Chosen variant, for example `es`. |
+| `anchor_s` | integer, nullable | Second where the recommendations section starts. |
+| `anchor_kinds` | text, nullable | Detected signals, comma-separated: `intro`, `juego`, `peli`. |
+| `anchor_state` | text, nullable | `ok`, `parcial` or `sin_ancla`. |
+| `anchor_evidence` | text, nullable | *Internal.* Fragment that triggered the detection, for review. |
+| `tail_s` | integer, nullable | Seconds from the anchor to the end of the episode. |
+| `updated_at` | timestamp | |
+
+The audio window, transcription provider and extraction model are added to this table in their
+phases.
+
 ## Integrity rules
 
 - `episodes.video_id` is unique. An episode exists once, no matter how many times sync sees it.
@@ -51,10 +71,15 @@ One row per episode and step. It is what makes runs resumable and idempotent.
   records `metadata_error` and leaves it empty so the next sync retries.
 - A step can only move `pending → running → done | failed`. A retry puts a failed step back to
   `running`.
+- An episode has at most one `episode_processing` row, created lazily by the first step that
+  writes to it.
+- `subtitles_available = false` implies `anchor_state = sin_ancla`.
+- `anchor_state` is `ok`, `parcial` or `sin_ancla` once the anchor step has run, and empty before.
+- `anchor_evidence` is internal and never published.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
   `in progress`, `failed`, `complete`).
 
 ## Not defined yet
 
 `works`, `recommendations`, `availability` of works, candidates and publication data. They arrive
-with the phases that need them.
+with the phases that need them. The audio window fields will join `episode_processing` in phase 4.
