@@ -6,6 +6,7 @@ import pytest
 
 from despues_del_susto import __version__
 from despues_del_susto.services.sync import FullMetadata, PlaylistEntry, SyncError
+from despues_del_susto.steps import StopBatch
 
 
 def _entry(video_id: str, title: str, position: int) -> PlaylistEntry:
@@ -185,7 +186,7 @@ def test_ingest_runs_every_step_and_skips_them_on_a_second_run(invoke, step_call
 
     first = invoke("ingest", "abc123")
     assert first.exit_code == 0
-    assert first.stdout.count(": done") == 7
+    assert first.stdout.count(": done (") == 7
 
     second = invoke("ingest", "abc123")
     assert second.exit_code == 0
@@ -457,3 +458,101 @@ def test_missing_subtitles_is_a_state_not_a_failure(
     assert row["anchor_state"] == "sin_ancla"
     assert row["window_start_s"] == 2100
     assert row["window_origin"] == "fallback"
+
+
+def test_ingest_limit_processes_only_the_requested_batch(invoke, step_calls) -> None:
+    for video_id in ("aaa", "bbb", "ccc"):
+        invoke("episode", "add", video_id, "--title", video_id)
+
+    result = invoke("ingest", "--all", "--limit", "2")
+
+    assert result.exit_code == 0
+    assert len({video_id for _, video_id in step_calls}) == 2
+    assert "Batch: 2 processed" in result.output
+    assert "1 pending for audio" in result.output
+
+
+def test_ingest_limit_requires_all(invoke) -> None:
+    result = invoke("ingest", "abc", "--limit", "2")
+
+    assert result.exit_code == 1
+    assert "--limit requires --all" in result.output
+
+
+def test_ingest_limit_must_be_positive(invoke) -> None:
+    result = invoke("ingest", "--all", "--limit", "0")
+
+    assert result.exit_code == 1
+    assert "at least 1" in result.output
+
+
+def test_batch_skips_episodes_that_finished_the_target_step(invoke, step_calls) -> None:
+    invoke("episode", "add", "aaa", "--title", "A")
+    invoke("episode", "add", "bbb", "--title", "B")
+    invoke("ingest", "aaa")
+    step_calls.clear()
+
+    result = invoke("ingest", "--all")
+
+    assert result.exit_code == 0
+    assert {video_id for _, video_id in step_calls} == {"bbb"}
+    assert "Batch: 1 processed" in result.output
+
+
+def test_batch_stops_when_a_step_asks_to_stop(
+    invoke, monkeypatch, db_path: Path
+) -> None:
+    invoke("episode", "add", "aaa", "--title", "A")
+    invoke("episode", "add", "bbb", "--title", "B")
+
+    def fake(step, episode, settings):
+        if step == "transcribe":
+            raise StopBatch("quota exhausted")
+
+    monkeypatch.setattr("despues_del_susto.services.ingest.run_step", fake)
+
+    result = invoke("ingest", "--all")
+
+    assert result.exit_code == 1
+    assert "quota exhausted" in result.output
+    assert "stopped early" in result.output
+    assert _step_statuses(db_path, "aaa")["transcribe"] == "pending"
+    assert _step_statuses(db_path, "bbb") == {}
+
+
+def test_single_ingest_prints_live_progress(invoke, step_calls) -> None:
+    invoke("episode", "add", "abc", "--title", "E")
+
+    result = invoke("ingest", "abc")
+
+    assert result.exit_code == 0
+    assert result.stdout.index("subs: running") < result.stdout.index("subs: done (")
+
+
+def test_quiet_suppresses_progress_but_keeps_the_summary(invoke, step_calls) -> None:
+    invoke("episode", "add", "abc", "--title", "E")
+
+    result = invoke("--quiet", "ingest", "abc")
+
+    assert result.exit_code == 0
+    assert "running" not in result.output
+    assert "abc: done 7, skipped 0" in result.output
+
+
+def test_quiet_batch_prints_only_the_summary(invoke, step_calls) -> None:
+    invoke("episode", "add", "abc", "--title", "E")
+
+    result = invoke("--quiet", "ingest", "--all")
+
+    assert result.exit_code == 0
+    assert "subs: running" not in result.output
+    assert "Batch: 1 processed" in result.output
+
+
+def test_sync_prints_metadata_progress(invoke, network) -> None:
+    network["entries"] = [_entry("aaa", "A", 1)]
+
+    result = invoke("sync", "--playlist-url", "https://example.test/list")
+
+    assert result.exit_code == 0
+    assert "metadata 1/1" in result.output

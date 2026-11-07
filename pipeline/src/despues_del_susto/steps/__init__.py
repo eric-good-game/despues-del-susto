@@ -33,6 +33,27 @@ class StepNotImplemented(RuntimeError):
         self.step = step
 
 
+class StopBatch(RuntimeError):
+    """The step cannot continue the current batch.
+
+    Used for conditions that are not a permanent failure, such as an exhausted
+    API quota: the step stays pending and the batch stops instead of failing the
+    remaining episodes one by one.
+    """
+
+
+def target_step() -> str:
+    """The last step that has an implementation.
+
+    Batch runs select episodes that have not finished this step, so the target
+    advances by itself when a phase implements the next step.
+    """
+    for step in reversed(STEPS):
+        if step in _RUNNERS:
+            return step
+    raise RuntimeError("no step has an implementation")
+
+
 def run_step(step: str, episode: Episode, settings: Settings) -> None:
     """Execute one step for one episode."""
     runner = _RUNNERS.get(step)

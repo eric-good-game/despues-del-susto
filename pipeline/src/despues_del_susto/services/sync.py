@@ -15,6 +15,7 @@ from sqlalchemy import select
 from despues_del_susto.config import Settings
 from despues_del_susto.db import Episode, ensure_schema, session_scope
 from despues_del_susto.db.models import utcnow
+from despues_del_susto.progress import ProgressSink
 from despues_del_susto.ytdlp import YtDlpError, run_json
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ def sync_playlist(
     *,
     dry_run: bool = False,
     force: bool = False,
+    progress: ProgressSink | None = None,
 ) -> SyncReport:
     """Compare the playlist with the database and apply the differences."""
     url = playlist_url or settings.playlist_url
@@ -142,7 +144,7 @@ def sync_playlist(
             return report
         session.commit()
 
-    _fetch_pending_metadata(settings, report)
+    _fetch_pending_metadata(settings, report, progress or ProgressSink())
     return report
 
 
@@ -168,20 +170,25 @@ def _check_listing_size(
         )
 
 
-def _fetch_pending_metadata(settings: Settings, report: SyncReport) -> None:
+def _fetch_pending_metadata(
+    settings: Settings, report: SyncReport, progress: ProgressSink
+) -> None:
     """Fill the metadata of episodes that do not have it yet.
 
     One failure does not stop the sync: it is recorded on the episode and
     retried on the next run.
     """
-    for index, video_id in enumerate(report.metadata_pending):
-        if index:
+    total = len(report.metadata_pending)
+    for index, video_id in enumerate(report.metadata_pending, start=1):
+        if index > 1:
             time.sleep(settings.sync_delay_s)
+        progress.metadata_started(video_id, index, total)
         try:
             metadata = fetch_full_metadata(settings, video_id)
         except SyncError as exc:
             report.metadata_failed[video_id] = str(exc)
             _save_metadata_error(settings, video_id, str(exc))
+            progress.metadata_failed(video_id, str(exc))
             continue
         _save_metadata(settings, video_id, metadata)
         report.metadata_fetched.append(video_id)
