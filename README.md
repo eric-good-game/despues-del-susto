@@ -8,7 +8,9 @@ episode of the *Tengo Miedo* podcast.
 ## Status
 
 Version 1 runs entirely on the author's machine, in Python. There is no web server yet; publishing
-is a later phase. See [`WORKFLOW.md`](WORKFLOW.md) for how the project is built.
+is a later phase. The project is at **phase 1, the walking skeleton**: episodes and step state live
+in SQLite, and every pipeline step is a stub. See [`WORKFLOW.md`](WORKFLOW.md) and
+[`docs/pipeline.md`](docs/pipeline.md).
 
 ## Why local first
 
@@ -36,7 +38,13 @@ cp .env.example .env   # fill in only the keys the current phase needs
 
 ```sh
 dds --help
-dds version
+
+dds db upgrade                                   # explicit; other commands migrate too
+dds episode add <video_id> --title "Episode title"
+dds ingest <video_id>                            # runs the seven steps, resuming where needed
+dds status                                       # one row per episode
+
+dds sync --playlist-url "https://www.youtube.com/playlist?list=..."   # stub until phase 2
 ```
 
 ## Layout
@@ -47,7 +55,7 @@ dds version
 | `pipeline/src/despues_del_susto/` | Source code |
 | `pipeline/tests/` | Tests |
 | `data/` | Local artifacts and the SQLite database. Not versioned. |
-| `docs/` | Documentation, written as each phase needs it |
+| `docs/` | Glossary, data model, pipeline contract and decision records, written as each phase needs them |
 | `prev/` | Earlier prototype. Reference only. Not versioned. |
 
 ## Conventions
