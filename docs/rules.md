@@ -97,6 +97,20 @@ measured and adjusted with real episodes.
 | BR-43 | Match scores, notes, candidates and the mention second are internal. They are never published. | Decision |
 | BR-44 | Prices are never stored or shown. Availability arrives with its own phase. | Decision |
 
+## Review
+
+| ID | Rule | Origin |
+|---|---|---|
+| BR-45 | The pending states are `needs_review`, `no_match` and `manual_pending`. `--all` also lets the author inspect and correct `confirmed` matches. | Decision |
+| BR-46 | Choosing a candidate links the recommendation to its work, sets `manual_resolved`, `decided_by = manual` and `match_note = manual_choice`. | Decision |
+| BR-47 | A manual work uses `source = manual`, the recommendation's type (book or other) and an `external_id` derived from title and year. The recommendation becomes `manual_resolved` with `match_note = manual_work`. | Decision |
+| BR-48 | Discarding sets `discarded`, `decided_by = manual`, leaves `work_id` empty and records `manual_discard`. Discarded recommendations are never published. | Decision |
+| BR-49 | Manual decisions are never overwritten by enrichment, which only processes `decided_by = automatic` rows. | Decision |
+| BR-50 | Correcting a confirmed match is allowed; the previous work is removed if no recommendation points to it anymore. | Decision |
+| BR-51 | A new search during review replaces the stored candidates with up to 5 results and marks the chosen one. | Initial |
+| BR-52 | Mention seconds, match scores, notes and candidates remain internal. | Decision |
+| BR-53 | `review status` is only a workload summary; it does not approve an episode for publication. Publication arrives with the site phase. | Decision |
+
 ## How the initial values are validated
 
 After processing the 50 existing episodes, measure:
@@ -135,3 +149,10 @@ After the first catalog pass, also check:
 - Which confirmed matches are wrong when reviewed by hand; that is the number the threshold and the year rule must reduce.
 - How often the year tie-break resolves what would otherwise be a close call.
 - Whether the `uncertain_title` guard sends cases that were actually correct to review.
+
+After the first review pass, also check:
+
+- How often the probable title was right when the author resolves a case.
+- How many recommendations were discarded as passing mentions.
+- How many books or other works needed a manual entry.
+- Whether corrections mostly come from a new title search or from the stored candidates.

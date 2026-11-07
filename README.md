@@ -8,8 +8,8 @@ episode of the *Tengo Miedo* podcast.
 ## Status
 
 Version 1 runs entirely on the author's machine, in Python. There is no web server yet; publishing
-is a later phase. The project is at **phase 7a, enrichment**: the playlist, subtitles, anchor, audio,
-transcript, extraction and matching against TMDB/IGDB are done; availability is next. See
+is a later phase. The project is at **phase 8, review**: the playlist, subtitles, anchor, audio,
+transcript, extraction, matching and the manual review CLI are done; availability is next. See
 [`WORKFLOW.md`](WORKFLOW.md) and [`docs/pipeline.md`](docs/pipeline.md).
 
 ## Why local first
@@ -47,6 +47,11 @@ dds ingest --all                                 # all pending episodes; rerun t
 dds ingest <video_id> --redo anchor              # re-run a step and everything after it
 dds --quiet ingest --all                         # progress off, final report only
 dds status                                       # one row per episode
+
+dds review status                                # pending cases by state
+dds review                                       # resolve pending matches interactively
+dds review --episode <video_id>                  # only one episode
+dds review --all                                 # include confirmed matches
 
 dds sync --dry-run                               # preview what the playlist would change
 dds sync                                         # apply it; uses DDS_PLAYLIST_URL

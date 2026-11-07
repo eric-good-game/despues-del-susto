@@ -41,6 +41,10 @@ the code or a column in the database.
 | **Score** | Similarity between the query and a candidate, from 0 to 1. Internal. |
 | **Candidate** | A possible match returned by a provider, stored for review when the decision is not clear. |
 | **Source** | The provider a work comes from: `TMDB`, `IGDB` or `manual`. |
+| **Review** | The manual pass where doubtful matches are resolved, corrected or discarded. |
+| **Manual decision** | A choice made by the author during review; enrichment never overwrites it. |
+| **Manual work** | A work entered by hand, usually a book or an `other` type without an automatic source. |
+| **Discard** | Marking a recommendation as not a real recommendation; it is kept for history and not published. |
 | **Availability** | Whether an episode is still reachable: `available` or `unavailable`. Missing videos are marked, never deleted. |
 | **Step** | One unit of the per-episode pipeline: `subs`, `anchor`, `audio`, `transcribe`, `extract`, `enrich`, `publish`. |
 | **Processing** | The recorded state of each step for an episode: `pending`, `running`, `done` or `failed`, with timestamps and the last error. |

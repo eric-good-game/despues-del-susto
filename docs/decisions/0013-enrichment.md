@@ -26,7 +26,7 @@ so this phase defines the matching contract.
   a recommendation.
 - **No subtitle cross-check yet.** If the catalog pass shows many `no_match` cases, the second
   source is the next step.
-- **No availability yet.** That is phase 7b, with its own tables and API calls.
+- **No availability yet.** That is the availability phase, with its own tables and API calls.
 
 ## Alternatives considered
 

@@ -77,7 +77,7 @@ One row per work mentioned as a recommendation in an episode.
 | `work_id` | integer, nullable, foreign key → `works.id` | Set when the match is confirmed. |
 | `type` | text | `videogame`, `movie`, `series`, `book` or `other`. |
 | `role` | text | `primary` or `additional`. |
-| `state` | text | `extracted`, `confirmed`, `needs_review`, `no_match` or `manual_pending`. |
+| `state` | text | `extracted`, `confirmed`, `needs_review`, `no_match`, `manual_pending`, `manual_resolved` or `discarded`. |
 | `mentioned_title` | text | As it appears in the transcript. |
 | `probable_title` | text, nullable | The model's best guess, if any. |
 | `related_mentions` | text, nullable | Derived works named alongside this one. |
@@ -85,7 +85,7 @@ One row per work mentioned as a recommendation in an episode.
 | `mention_s` | integer, nullable | *Internal.* Episode second where the mention starts. |
 | `mentioned_platform` | text, nullable | *Internal.* Platform said in the audio. |
 | `match_score` | decimal, nullable | *Internal.* Similarity of the chosen candidate, 0 to 1. |
-| `match_note` | text, nullable | *Internal.* Why the state was chosen. |
+| `match_note` | text, nullable | *Internal.* Why the state was chosen, such as `manual_choice`, `manual_work` or `manual_discard`. |
 | `decided_by` | text | `automatic` or `manual`. |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
@@ -97,9 +97,9 @@ One row per resolved catalog work.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | integer, primary key | |
-| `type` | text | `videogame`, `movie` or `series`. |
+| `type` | text | `videogame`, `movie`, `series`, `book` or `other`. |
 | `source` | text | `TMDB`, `IGDB` or `manual`. |
-| `external_id` | text | Identifier in the source. |
+| `external_id` | text | Identifier in the source; for manual works it is derived from title and year. |
 | `official_title` | text | Localized title when the source has one. |
 | `original_title` | text, nullable | |
 | `year` | integer, nullable | |
@@ -161,19 +161,21 @@ Possible matches stored for review.
   set. Manual rows are kept.
 - A recommendation has `role = primary` only for the expected primary works; everything else is
   `additional`.
-- `state` starts as `extracted`. `confirmed` requires `work_id`; `needs_review`, `no_match` and
-  `manual_pending` leave it empty.
+- `state` starts as `extracted`. `confirmed` and `manual_resolved` require `work_id`;
+  `needs_review`, `no_match`, `manual_pending` and `discarded` leave it empty.
 - A work is unique by `(source, external_id)`. Two episodes can point to the same work.
+- Manual works use `source = manual` and an `external_id` derived from title and year; they can
+  carry `book` or `other` as their type.
 - Up to 5 candidates are stored per recommendation, and at most one is `chosen`; only a confirmed
-  recommendation marks one.
+  or manually resolved recommendation marks one.
 - Re-enriching replaces the recommendation's automatic candidates and match, and deletes works that
-  no recommendation references.
+  no recommendation references. It never touches rows with `decided_by = manual`.
+- Discarded recommendations are kept for history and are never published.
 - `match_score`, `match_note`, candidates and `mention_s` are internal and never published.
-- `mention_s` and `mentioned_platform` are internal and never published.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
   `in progress`, `failed`, `complete`).
 
 ## Not defined yet
 
-`availability` of works, availability checks and publication data. They arrive in phase 7b and
-later phases.
+`availability` of works, availability checks and publication data. They arrive in the availability
+phase and later ones.

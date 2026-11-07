@@ -184,7 +184,26 @@ The enrichment step matches each extracted recommendation against the metadata p
   `DDS_IGDB_DELAY_S`. A rate limit raises `StopBatch`.
 - Re-enriching replaces automatic candidates and matches, and removes works that no recommendation
   points to.
-- Availability is **not** part of this step yet; it arrives in phase 7b.
+- Availability is **not** part of this step yet; it arrives in a later phase.
+
+### Review
+
+The review command resolves the cases that enrichment could not settle.
+
+- `dds review` walks the pending cases interactively; `--episode <video_id>` limits it to one
+  episode and `--all` also includes confirmed matches so they can be corrected.
+- For each case it shows the episode, type, mentioned and probable titles, confidence, internal
+  mention second, the stored candidates and their scores.
+- Actions: choose a candidate, search another title, create a manual work, discard the
+  recommendation, skip it or quit.
+- Choosing a candidate links it to a work and sets `manual_resolved`, `decided_by = manual` and
+  `match_note = manual_choice`.
+- A manual work uses `source = manual`, the recommendation's type and an `external_id` derived from
+  title and year. The recommendation becomes `manual_resolved` with `match_note = manual_work`.
+- Discarding sets `discarded` with `match_note = manual_discard`; it is never published.
+- Manual decisions are skipped by enrichment, so a later `--redo enrich` does not overwrite them.
+- `dds review status` prints the counts by state and the number of episodes with pending cases. It is
+  a workload summary, not publication approval.
 
 ## Orchestration
 
@@ -243,6 +262,10 @@ sidecar CSV file.
 | `dds ingest --all` | Runs pending episodes through the last implemented step. |
 | `dds ingest --all --limit N` | Same, for the first N pending episodes. |
 | `dds --quiet …` | Suppresses progress; final reports still print. |
+| `dds review` | Review pending matches interactively. |
+| `dds review --episode <video_id>` | Review only one episode. |
+| `dds review --all` | Include confirmed matches so they can be corrected. |
+| `dds review status` | Counts by state and episodes with pending cases. |
 | `dds sync` | Set-level discovery. Progress goes to stderr. |
 | `dds status` | Reads the database and prints one row per episode. |
 | `dds db upgrade` | Applies migrations. Every other command does this implicitly. |

@@ -10,9 +10,10 @@ It is not legal advice; the terms of each service must be checked again before p
 |---|---|---|
 | Episode title, date, thumbnail, video | YouTube | `yt-dlp` metadata |
 | Movie and series title, year, genres, poster, description | TMDB | TMDB API |
-| Movie and series availability in Mexico | JustWatch, through TMDB | TMDB watch providers (phase 7b) |
+| Movie and series availability in Mexico | JustWatch, through TMDB | TMDB watch providers (availability phase) |
 | Videogame title, year, genres, cover, description | IGDB | IGDB API |
-| Videogame store links | IGDB | IGDB websites (phase 7b) |
+| Videogame store links | IGDB | IGDB websites (availability phase) |
+| Manual works, usually books | The author | Entered during review |
 | Recommendation itself: which work in which episode | The episode | Transcript extraction and review |
 
 ## 2. Attribution
@@ -66,6 +67,8 @@ Not stored or published:
 - Anchor seconds, mention seconds, match scores, candidates and evidence.
 - Copied synopses from other sites; only what the API provides or a short original summary.
 - Scraped pages. All provider data comes from its API.
+
+Manual works are the author's own data; the site must say so on their cards.
 
 ## 4. Site notices
 
