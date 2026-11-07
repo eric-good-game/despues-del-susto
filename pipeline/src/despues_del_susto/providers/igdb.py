@@ -13,6 +13,10 @@ from despues_del_susto.providers.models import Candidate
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 GAMES_URL = "https://api.igdb.com/v4/games"
 IMAGE_URL = "https://images.igdb.com/igdb/image/upload"
+FIELDS = (
+    "name, first_release_date, cover.url, summary, url, "
+    "genres.name, rating, aggregated_rating"
+)
 
 
 class IgdbClient:
@@ -37,12 +41,7 @@ class IgdbClient:
             return [candidate for item in cached if (candidate := self._candidate(item))]
 
         token = self._access_token()
-        body = (
-            f'search "{_escape(query)}"; '
-            "fields name, first_release_date, cover.url, summary, url, "
-            "genres.name, rating, aggregated_rating; "
-            "limit 10;"
-        )
+        body = f'search "{_escape(query)}"; fields {FIELDS}; limit 10;'
         time.sleep(self.settings.igdb_delay_s)
         data = request_json(
             self.session,
@@ -60,6 +59,45 @@ class IgdbClient:
             raise ProviderError("invalid IGDB response")
         self.cache.set(key, data)
         return [candidate for item in data if (candidate := self._candidate(item))]
+
+    def details(self, external_id: str) -> Candidate:
+        """Fetch one game by its numeric IGDB id."""
+        if not self.client_id or not self.client_secret:
+            raise ProviderError("TWITCH_CLIENT_ID or TWITCH_CLIENT_SECRET is not set")
+        try:
+            numeric_id = int(external_id)
+        except ValueError as exc:
+            raise ProviderError(f"invalid IGDB id: {external_id}") from exc
+
+        key = f"igdb:details:{numeric_id}"
+        cached = self.cache.get(key)
+        if cached is not None:
+            candidate = self._candidate(cached[0]) if cached else None
+            if candidate is not None:
+                return candidate
+
+        token = self._access_token()
+        body = f"fields {FIELDS}; where id = {numeric_id}; limit 1;"
+        time.sleep(self.settings.igdb_delay_s)
+        data = request_json(
+            self.session,
+            "POST",
+            GAMES_URL,
+            headers={
+                "Client-ID": self.client_id,
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+            },
+            data=body,
+            timeout=self.settings.metadata_timeout_s,
+        )
+        if not isinstance(data, list) or not data:
+            raise ProviderError(f"no IGDB game for id {numeric_id}")
+        candidate = self._candidate(data[0])
+        if candidate is None:
+            raise ProviderError(f"unusable IGDB game for id {numeric_id}")
+        self.cache.set(key, data)
+        return candidate
 
     def _access_token(self) -> str:
         if self._token and time.monotonic() < self._expires_at - 60:

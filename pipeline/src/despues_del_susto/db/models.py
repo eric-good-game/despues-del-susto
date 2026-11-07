@@ -124,6 +124,10 @@ class Recommendation(Base):
 
     episode: Mapped[Episode] = relationship(back_populates="recommendations")
     work: Mapped["Work | None"] = relationship()
+    candidates: Mapped[list["Candidate"]] = relationship(
+        back_populates="recommendation",
+        cascade="all, delete-orphan",
+    )
 
 
 class Work(Base):
@@ -174,6 +178,10 @@ class Candidate(Base):
     score: Mapped[float] = mapped_column(Float)
     origin: Mapped[str] = mapped_column(String(20), default="api")
     chosen: Mapped[bool] = mapped_column(default=False)
+
+    recommendation: Mapped[Recommendation] = relationship(
+        back_populates="candidates"
+    )
 
 
 class ProcessingStep(Base):

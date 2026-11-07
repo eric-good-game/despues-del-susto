@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 import typer
 from rich.console import Console
+from rich.prompt import Prompt
 from rich.table import Table
 
 from despues_del_susto import __version__
@@ -11,6 +12,7 @@ from despues_del_susto.config import Settings
 from despues_del_susto.db import ensure_schema
 from despues_del_susto.log import configure_logging
 from despues_del_susto.progress import ProgressSink
+from despues_del_susto.services import review as review_service
 from despues_del_susto.services.episodes import (
     DuplicateEpisodeError,
     add_episode,
@@ -24,6 +26,8 @@ from despues_del_susto.services.ingest import (
     ingest_all,
     ingest_episode,
 )
+from despues_del_susto.services.matching import ScoredCandidate
+from despues_del_susto.services.review import CandidateView, ReviewCase, ReviewError
 from despues_del_susto.services.sync import (
     DiscoveryNotConfigured,
     SyncError,
@@ -40,8 +44,14 @@ app = typer.Typer(
 )
 db_app = typer.Typer(help="Database commands.", no_args_is_help=True)
 episode_app = typer.Typer(help="Episode commands.", no_args_is_help=True)
+review_app = typer.Typer(
+    help="Review pending recommendation matches.",
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
 app.add_typer(db_app, name="db")
 app.add_typer(episode_app, name="episode")
+app.add_typer(review_app, name="review")
 
 
 class ConsoleProgress(ProgressSink):
@@ -289,6 +299,227 @@ def episode_add(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"Added episode {episode.video_id}: {episode.title}")
+
+
+@review_app.callback()
+def review_main(
+    ctx: typer.Context,
+    episode: str | None = typer.Option(
+        None, "--episode", help="Only this YouTube video id."
+    ),
+    all_cases: bool = typer.Option(
+        False, "--all", help="Include confirmed matches."
+    ),
+) -> None:
+    """Review pending matches interactively."""
+    if ctx.invoked_subcommand is not None:
+        return
+    _review_interactive(episode, all_cases)
+
+
+@review_app.command("status")
+def review_status() -> None:
+    """Show how many recommendations are pending and resolved."""
+    summary = review_service.status_summary(Settings())
+    counts = summary["counts"]
+    table = Table(title="Review status")
+    table.add_column("State")
+    table.add_column("Count", justify="right")
+    for state in (
+        "needs_review",
+        "no_match",
+        "manual_pending",
+        "confirmed",
+        "manual_resolved",
+        "discarded",
+        "extracted",
+    ):
+        table.add_row(state, str(counts.get(state, 0)))
+    Console().print(table)
+    typer.echo(
+        f"Recommendations: {summary['total']} · Works: {summary['works']} · "
+        f"Episodes with pending: {summary['pending_episodes']}"
+    )
+
+
+def _review_interactive(episode: str | None, all_cases: bool) -> None:
+    console = Console()
+    settings = Settings()
+    cases = review_service.list_cases(
+        settings, episode=episode, include_confirmed=all_cases
+    )
+    if not cases:
+        console.print(
+            "No cases pending." if not all_cases else "No cases to review."
+        )
+        return
+
+    for index, case in enumerate(cases, start=1):
+        console.rule(
+            f"[{index}/{len(cases)}] {case.episode_video_id} · {case.type} · {case.state}"
+        )
+        console.print(f"Episode: {case.episode_title}")
+        probable = case.probable_title or "—"
+        console.print(f'Mentioned: "{case.mentioned_title}"   Probable: "{probable}"')
+        mention = case.mention_s if case.mention_s is not None else "—"
+        console.print(f"Confidence: {case.confidence}   Mention second: {mention}")
+        if case.match_note:
+            console.print(
+                f"Current match: {case.match_note} (score {case.match_score or 0:.2f})"
+            )
+
+        if case.candidates:
+            console.print(_candidate_table(case.candidates))
+        else:
+            console.print("[yellow]No candidates stored.[/yellow]")
+
+        choices = [str(number) for number in range(1, len(case.candidates) + 1)]
+        choices += ["s", "m", "d", "k", "q"]
+        choice = Prompt.ask("Action", choices=choices, default="k")
+
+        try:
+            if choice == "q":
+                break
+            if choice == "k":
+                continue
+            if choice == "d":
+                review_service.discard(settings, case.recommendation_id)
+                console.print("[green]Discarded.[/green]")
+                continue
+            if choice == "m":
+                _review_manual(console, settings, case)
+                continue
+            if choice == "s":
+                _review_search(console, settings, case)
+                continue
+
+            candidate = case.candidates[int(choice) - 1]
+            work = review_service.resolve_candidate(
+                settings,
+                case.recommendation_id,
+                source=candidate.source,
+                type=candidate.type,
+                external_id=candidate.external_id,
+                title=candidate.title,
+                year=candidate.year,
+                image_url=candidate.image_url,
+                score=candidate.score,
+            )
+            console.print(
+                f"[green]Linked to work #{work.id}: {work.official_title} "
+                f"({work.year or '—'})[/green]"
+            )
+        except ReviewError as exc:
+            console.print(f"[red]{exc}[/red]")
+
+    console.print("Review finished.")
+
+
+def _review_manual(console: Console, settings: Settings, case: ReviewCase) -> None:
+    title = Prompt.ask("Title", default=case.probable_title or case.mentioned_title)
+    year_text = Prompt.ask("Year (optional)", default="")
+    description = Prompt.ask("Description (optional)", default="")
+    image_url = Prompt.ask("Image URL (optional)", default="")
+    year = int(year_text) if year_text.strip().isdigit() else None
+    work = review_service.resolve_manual(
+        settings,
+        case.recommendation_id,
+        type=case.type,
+        title=title,
+        year=year,
+        description=description or None,
+        image_url=image_url or None,
+    )
+    console.print(f"[green]Manual work #{work.id}: {work.official_title}[/green]")
+
+
+def _review_search(console: Console, settings: Settings, case: ReviewCase) -> None:
+    query = Prompt.ask(
+        "New search", default=case.probable_title or case.mentioned_title
+    )
+    try:
+        scored = review_service.search_alternatives(
+            settings, case.recommendation_id, query
+        )
+    except ReviewError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return
+    if not scored:
+        console.print("[yellow]No results.[/yellow]")
+        return
+
+    console.print(_scored_table(scored))
+    choices = [str(number) for number in range(1, len(scored) + 1)] + ["b"]
+    choice = Prompt.ask("Choose", choices=choices, default="b")
+    if choice == "b":
+        return
+
+    item = scored[int(choice) - 1]
+    try:
+        work = review_service.resolve_candidate(
+            settings,
+            case.recommendation_id,
+            source=item.candidate.source,
+            type=item.candidate.type,
+            external_id=item.candidate.external_id,
+            title=item.candidate.title,
+            year=item.candidate.year,
+            image_url=item.candidate.image_url,
+            score=item.score,
+            scored=scored,
+        )
+    except ReviewError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return
+    console.print(
+        f"[green]Linked to work #{work.id}: {work.official_title} "
+        f"({work.year or '—'})[/green]"
+    )
+
+
+def _candidate_table(candidates: list[CandidateView]) -> Table:
+    table = Table(title="Candidates")
+    table.add_column("#", justify="right")
+    table.add_column("Source")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Year")
+    table.add_column("Score", justify="right")
+    table.add_column("Image")
+    for position, candidate in enumerate(candidates, start=1):
+        table.add_row(
+            str(position),
+            candidate.source,
+            candidate.type,
+            candidate.title,
+            str(candidate.year or "—"),
+            f"{candidate.score:.2f}",
+            candidate.image_url or "",
+        )
+    return table
+
+
+def _scored_table(scored: list[ScoredCandidate]) -> Table:
+    table = Table(title="Search results")
+    table.add_column("#", justify="right")
+    table.add_column("Source")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("Year")
+    table.add_column("Score", justify="right")
+    table.add_column("Image")
+    for position, item in enumerate(scored, start=1):
+        candidate = item.candidate
+        table.add_row(
+            str(position),
+            candidate.source,
+            candidate.type,
+            candidate.title,
+            str(candidate.year or "—"),
+            f"{item.score:.2f}",
+            candidate.image_url or "",
+        )
+    return table
 
 
 def _quiet(ctx: typer.Context) -> bool:

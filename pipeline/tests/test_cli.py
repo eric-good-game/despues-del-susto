@@ -675,3 +675,18 @@ def test_sync_prints_metadata_progress(invoke, network) -> None:
 
     assert result.exit_code == 0
     assert "metadata 1/1" in result.output
+
+
+def test_review_status_prints_counts(invoke) -> None:
+    result = invoke("review", "status")
+
+    assert result.exit_code == 0
+    assert "needs_review" in result.output
+    assert "Recommendations: 0" in result.output
+
+
+def test_review_without_cases_explains(invoke) -> None:
+    result = invoke("review")
+
+    assert result.exit_code == 0
+    assert "No cases pending" in result.output
