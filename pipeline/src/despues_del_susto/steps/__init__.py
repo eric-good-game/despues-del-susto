@@ -6,7 +6,7 @@ here so the orchestrator does not change when a step becomes real.
 
 from despues_del_susto.config import Settings
 from despues_del_susto.db.models import Episode
-from despues_del_susto.steps import anchor, audio, extract, subs, transcribe
+from despues_del_susto.steps import anchor, audio, enrich, extract, subs, transcribe
 from despues_del_susto.steps.errors import StepNotImplemented, StopBatch
 
 STEPS: tuple[str, ...] = (
@@ -25,6 +25,7 @@ _RUNNERS = {
     "audio": audio.run,
     "transcribe": transcribe.run,
     "extract": extract.run,
+    "enrich": enrich.run,
 }
 
 __all__ = [

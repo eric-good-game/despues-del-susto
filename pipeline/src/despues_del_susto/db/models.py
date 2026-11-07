@@ -7,7 +7,7 @@ through an Alembic migration.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from despues_del_susto.db.base import Base
@@ -99,8 +99,10 @@ class Recommendation(Base):
     episode_id: Mapped[int] = mapped_column(
         ForeignKey("episodes.id", ondelete="CASCADE"), index=True
     )
-    #: Resolved in phase 7, when the ``works`` table exists.
-    work_id: Mapped[int | None]
+    #: Resolved by enrichment.
+    work_id: Mapped[int | None] = mapped_column(
+        ForeignKey("works.id", ondelete="SET NULL")
+    )
     type: Mapped[str] = mapped_column(String(20))
     role: Mapped[str] = mapped_column(String(20))
     state: Mapped[str] = mapped_column(String(20), default="extracted")
@@ -110,6 +112,8 @@ class Recommendation(Base):
     confidence: Mapped[str] = mapped_column(String(10))
     mention_s: Mapped[int | None]
     mentioned_platform: Mapped[str | None] = mapped_column(String(200))
+    match_score: Mapped[float | None] = mapped_column(Float)
+    match_note: Mapped[str | None] = mapped_column(String(100))
     decided_by: Mapped[str] = mapped_column(String(10), default="automatic")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
@@ -119,6 +123,57 @@ class Recommendation(Base):
     )
 
     episode: Mapped[Episode] = relationship(back_populates="recommendations")
+    work: Mapped["Work | None"] = relationship()
+
+
+class Work(Base):
+    """A catalog work resolved against TMDB or IGDB."""
+
+    __tablename__ = "works"
+    __table_args__ = (
+        UniqueConstraint("source", "external_id", name="uq_works_source_external_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(String(20))
+    source: Mapped[str] = mapped_column(String(10))
+    external_id: Mapped[str] = mapped_column(String(50))
+    official_title: Mapped[str] = mapped_column(String(500))
+    original_title: Mapped[str | None] = mapped_column(String(500))
+    year: Mapped[int | None]
+    genres: Mapped[str | None] = mapped_column(String(500))
+    description: Mapped[str | None] = mapped_column(Text)
+    image_url: Mapped[str | None] = mapped_column(String(1000))
+    source_url: Mapped[str | None] = mapped_column(String(1000))
+    data_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class Candidate(Base):
+    """A possible match stored for review."""
+
+    __tablename__ = "candidates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    recommendation_id: Mapped[int] = mapped_column(
+        ForeignKey("recommendations.id", ondelete="CASCADE"), index=True
+    )
+    source: Mapped[str] = mapped_column(String(10))
+    type: Mapped[str] = mapped_column(String(20))
+    external_id: Mapped[str] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(500))
+    year: Mapped[int | None]
+    image_url: Mapped[str | None] = mapped_column(String(1000))
+    score: Mapped[float] = mapped_column(Float)
+    origin: Mapped[str] = mapped_column(String(20), default="api")
+    chosen: Mapped[bool] = mapped_column(default=False)
 
 
 class ProcessingStep(Base):

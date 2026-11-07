@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     # Extraction
     extract_timeout_s: float = 180.0
 
+    # Enrichment
+    metadata_language: str = "es-MX"
+    region: str = "MX"
+    match_threshold: float = 0.85
+    match_min_difference: float = 0.05
+    max_candidates: int = 5
+    igdb_delay_s: float = 0.26
+    metadata_timeout_s: float = 30.0
+
     @property
     def db_path(self) -> Path:
         """Where the SQLite database lives."""
@@ -99,3 +108,17 @@ class LlmSettings(BaseSettings):
     @classmethod
     def _clean_provider(cls, value: object) -> str:
         return str(value).split("#", 1)[0].strip().lower()
+
+
+class MetadataSettings(BaseSettings):
+    """TMDB and Twitch credentials, read without the ``DDS_`` prefix."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    tmdb_token: str = ""
+    twitch_client_id: str = ""
+    twitch_client_secret: str = ""

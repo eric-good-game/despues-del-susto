@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from despues_del_susto import __version__
+from despues_del_susto import steps as steps_module
 from despues_del_susto.services.sync import FullMetadata, PlaylistEntry, SyncError
 from despues_del_susto.steps import StopBatch, target_step
 from despues_del_susto.steps.extract import ExtractionResult, RecommendationDraft
@@ -135,6 +136,14 @@ def extractor(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "despues_del_susto.steps.extract.request_extraction", fake
+    )
+
+
+@pytest.fixture
+def enricher(monkeypatch) -> None:
+    """Replace the enrichment step with a no-op; its own tests cover it."""
+    monkeypatch.setitem(
+        steps_module._RUNNERS, "enrich", lambda episode, settings: None
     )
 
 
@@ -466,7 +475,7 @@ def test_ingest_all_and_a_video_id_are_exclusive(invoke) -> None:
 
 
 def test_subs_and_anchor_store_the_section(
-    invoke, subtitle_writer, audio_writer, transcriber, extractor, db_path: Path
+    invoke, subtitle_writer, audio_writer, transcriber, extractor, enricher, db_path: Path
 ) -> None:
     invoke("episode", "add", "abc", "--title", "E")
     _set_duration(db_path, "abc", 3600)
@@ -495,9 +504,11 @@ def test_subs_and_anchor_store_the_section(
     assert "audio: done" in result.output
     assert "transcribe: done" in result.output
     assert "extract: done" in result.output
-    assert "enrich: not implemented yet" in result.output
+    assert "enrich: done" in result.output
+    assert "publish: not implemented yet" in result.output
     assert _step_statuses(db_path, "abc")["extract"] == "done"
-    assert _step_statuses(db_path, "abc")["enrich"] == "pending"
+    assert _step_statuses(db_path, "abc")["enrich"] == "done"
+    assert _step_statuses(db_path, "abc")["publish"] == "pending"
 
     transcript = json.loads(
         (db_path.parent / "transcripts" / "abc.json").read_text(encoding="utf-8")
@@ -538,7 +549,7 @@ def test_subs_and_anchor_store_the_section(
 
 
 def test_missing_subtitles_is_a_state_not_a_failure(
-    invoke, monkeypatch, audio_writer, transcriber, extractor, db_path: Path
+    invoke, monkeypatch, audio_writer, transcriber, extractor, enricher, db_path: Path
 ) -> None:
     def no_files(settings, arguments):
         return None
@@ -554,7 +565,8 @@ def test_missing_subtitles_is_a_state_not_a_failure(
     assert "audio: done" in result.output
     assert "transcribe: done" in result.output
     assert "extract: done" in result.output
-    assert "enrich: not implemented yet" in result.output
+    assert "enrich: done" in result.output
+    assert "publish: not implemented yet" in result.output
     row = _processing(db_path, "abc")
     assert row["subtitles_available"] == 0
     assert row["anchor_state"] == "sin_ancla"
