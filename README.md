@@ -8,9 +8,9 @@ episode of the *Tengo Miedo* podcast.
 ## Status
 
 Version 1 runs entirely on the author's machine, in Python. There is no web server yet; publishing
-is a later phase. The project is at **phase 1, the walking skeleton**: episodes and step state live
-in SQLite, and every pipeline step is a stub. See [`WORKFLOW.md`](WORKFLOW.md) and
-[`docs/pipeline.md`](docs/pipeline.md).
+is a later phase. The project is at **phase 2, episode discovery**: the playlist is read with
+`yt-dlp`, episodes are upserted by `video_id`, and metadata is refreshed only where it is missing.
+See [`WORKFLOW.md`](WORKFLOW.md) and [`docs/pipeline.md`](docs/pipeline.md).
 
 ## Why local first
 
@@ -44,7 +44,8 @@ dds episode add <video_id> --title "Episode title"
 dds ingest <video_id>                            # runs the seven steps, resuming where needed
 dds status                                       # one row per episode
 
-dds sync --playlist-url "https://www.youtube.com/playlist?list=..."   # stub until phase 2
+dds sync --dry-run                               # preview what the playlist would change
+dds sync                                         # apply it; uses DDS_PLAYLIST_URL
 ```
 
 ## Layout

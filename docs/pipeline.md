@@ -16,11 +16,62 @@ per-episode and runs under `dds ingest <video_id>`.
 
 | | |
 |---|---|
-| Purpose | Keep the `episodes` table in step with the playlist. |
+| Purpose | Keep the `episodes` table in step with the playlist and refresh metadata. |
 | Input | Playlist URL (`DDS_PLAYLIST_URL` or `--playlist-url`). |
-| Output | Episodes inserted or updated, keyed by `video_id`. |
-| Idempotency key | `video_id`. |
-| Phase 1 | Stub: validates configuration, then exits with "implemented in phase 2". |
+| Output | Episodes inserted, updated, marked unavailable or reactivated. |
+| Idempotency key | `video_id`. Running it twice on the same playlist changes nothing. |
+| Network | `yt-dlp --flat-playlist` for the listing, plus one full extraction per episode that still needs metadata. |
+
+### 0.1 Listing
+
+`yt-dlp --flat-playlist --dump-single-json <url>` returns the entries in playlist order.
+The sync reads `id` and `title` and keeps the array position as `playlist_position`. Duplicate
+ids are ignored after the first one; entries without an id are skipped.
+
+### 0.2 Upsert
+
+For each entry:
+
+- **Not in the database** → insert with `availability = available`, `first_seen_at`,
+  `last_seen_at`, and a metadata fetch pending.
+- **Already there** → update `title` and `playlist_position` when they differ, set
+  `last_seen_at`, and reactivate it if it was `unavailable`.
+- **Same data** → counted as unchanged; nothing is written.
+
+Episodes that exist in the database but not in the listing are marked `unavailable`. They are never
+deleted. If they reappear in a later sync, they become `available` again.
+
+### 0.3 Metadata
+
+The flat listing has no date, duration or thumbnail. Those come from one full extraction per
+episode whose `metadata_fetched_at` is empty: new episodes, episodes registered by hand, and
+episodes whose last attempt failed.
+
+- The title is **not** taken from the full extraction. The listing owns the title; two writers
+  would make consecutive syncs overwrite each other.
+- A failure records `metadata_error`, leaves `metadata_fetched_at` empty and does not stop the
+  sync. The next sync retries it.
+- Calls are spaced by `DDS_SYNC_DELAY_S` seconds.
+
+### 0.4 Safety
+
+The listing is refused, and nothing is written, when:
+
+- `yt-dlp` fails or returns invalid JSON.
+- The listing has zero entries.
+- Fewer than `DDS_SYNC_MIN_RATIO` (default `0.5`) of the known available episodes appear, unless
+  `--force` is passed.
+
+The last rule stops a truncated response from marking most of the catalog unavailable. `--force`
+is the explicit statement that the playlist really shrank.
+
+### 0.5 Report and dry run
+
+`dds sync` prints what changed: added, updated, unavailable, reactivated, unchanged, metadata
+fetched and metadata failed, with the episode ids.
+
+`--dry-run` runs the same comparison and prints the same report without writing anything and
+without fetching metadata.
 
 ## Per-episode steps
 

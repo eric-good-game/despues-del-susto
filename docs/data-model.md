@@ -14,12 +14,15 @@ One row per video in the podcast.
 | `id` | integer, primary key | Surrogate key. |
 | `video_id` | text, unique | YouTube id. The natural key for upserts. |
 | `title` | text | Episode title as YouTube gives it. |
-| `published_at` | timestamp, nullable | Publication date. Filled by `sync` in phase 2. |
+| `published_at` | timestamp, nullable | Publication date. Filled by `sync`. |
 | `duration_s` | integer, nullable | Duration in seconds. |
 | `thumbnail_url` | text, nullable | Thumbnail URL. |
 | `playlist_position` | integer, nullable | Position in the playlist, for display order only. |
-| `availability` | text | `available` or `unavailable`. |
+| `availability` | text | `available` or `unavailable`. Only changes after an accepted sync. |
 | `first_seen_at` | timestamp | When the pipeline first registered the episode. |
+| `last_seen_at` | timestamp, nullable | Last accepted sync in which the episode appeared in the playlist. |
+| `metadata_fetched_at` | timestamp, nullable | When date, duration and thumbnail were fetched. Empty means the next sync retries. |
+| `metadata_error` | text, nullable | Last metadata failure, truncated to 2000 characters. |
 | `updated_at` | timestamp | Last metadata update. |
 
 ## `processing_steps`
@@ -41,6 +44,11 @@ One row per episode and step. It is what makes runs resumable and idempotent.
 - `episodes.video_id` is unique. An episode exists once, no matter how many times sync sees it.
 - `(episode_id, step)` is unique. A step has one state per episode.
 - Deleting an episode cascades to its steps.
+- `availability` changes only after a listing that the safety check accepted. A failed or
+  suspicious sync leaves every episode as it was.
+- `title` is written by the playlist listing, never by the full metadata extraction.
+- `metadata_fetched_at` is empty until date, duration and thumbnail are stored; a failed attempt
+  records `metadata_error` and leaves it empty so the next sync retries.
 - A step can only move `pending → running → done | failed`. A retry puts a failed step back to
   `running`.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
