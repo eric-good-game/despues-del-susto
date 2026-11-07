@@ -8,9 +8,9 @@ episode of the *Tengo Miedo* podcast.
 ## Status
 
 Version 1 runs entirely on the author's machine, in Python. There is no web server yet; publishing
-is a later phase. The project is at **phase 4, audio window**: the playlist is synced, subtitles and
-the anchor are resolved, and only the audio section needed for the recommendations is downloaded.
-See [`WORKFLOW.md`](WORKFLOW.md) and [`docs/pipeline.md`](docs/pipeline.md).
+is a later phase. The project is at **phase 5, transcription**: progress output and batch runs are
+in place; the transcription step is next. See [`WORKFLOW.md`](WORKFLOW.md) and
+[`docs/pipeline.md`](docs/pipeline.md).
 
 ## Why local first
 
@@ -42,8 +42,10 @@ dds --help
 dds db upgrade                                   # explicit; other commands migrate too
 dds episode add <video_id> --title "Episode title"
 dds ingest <video_id>                            # runs the available steps and stops at the first stub
-dds ingest --all                                 # every registered episode, in playlist order
+dds ingest --all --limit 10                      # the next 10 episodes pending the last implemented step
+dds ingest --all                                 # all pending episodes; rerun to continue
 dds ingest <video_id> --redo anchor              # re-run a step and everything after it
+dds --quiet ingest --all                         # progress off, final report only
 dds status                                       # one row per episode
 
 dds sync --dry-run                               # preview what the playlist would change

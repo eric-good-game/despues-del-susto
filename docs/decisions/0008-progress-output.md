@@ -1,43 +1,54 @@
 # 0008 — Progress output for long commands
 
-> Status: **proposed, not implemented**. Written down so the design is not lost; it is implemented
-> when a phase makes the silence painful again.
+> Status: **implemented in phase 5a**. The rich progress bar and the file log were not included.
 
 ## Context
 
-`dds ingest --all` and `dds sync` buffer their work and print only when they finish. A batch over
-50 episodes, or a first sync that fetches 50 metadata entries, produces several minutes of silence.
-There is no way to tell whether the process is working, stuck on the network or waiting on a rate
-limit.
+`dds ingest --all` and `dds sync` used to buffer their work and print only when they finished. A
+batch over 50 episodes, or a first sync that fetches 50 metadata entries, produced several minutes
+of silence. There was no way to tell whether the process was working, stuck on the network or
+waiting on a rate limit.
 
-## Proposed design
+## Decision
 
-- Services do not print. They emit progress events: episode started, step started, step finished,
-  metadata fetched `N/M`.
-- The CLI renders those events. Output goes to **stderr**, so the final report on stdout stays
-  clean and can be redirected.
-- Default rendering is plain lines, flushed immediately:
+- Services do not print. They emit events through a `ProgressSink`: episode started, step started,
+  step finished, episode finished, metadata started, metadata failed.
+- The CLI renders them with `ConsoleProgress`, using plain lines flushed immediately.
+- **Streams:**
+  - A single-episode `ingest` writes the step lines to **stdout**, because they are the result.
+  - A batch and `sync` write progress to **stderr**, keeping stdout for the final report.
+  - The final report always goes to stdout.
+- `--quiet` suppresses progress. A single-episode summary still prints; in a batch only the final
+  `Batch: …` line prints.
+- Step lines include the elapsed time, and a `running` line before the step starts so a long
+  download or transcription is visible while it happens.
 
-  ```
-  [ 3/50] 0I7ueTFcMb8  Episode title
-           subs       done    1.4s
-           anchor     done    0.02s  ok (intro,juego,peli) 1508s
-           audio      done    9.7s   window 1418s (anchor)
-  ```
+Example:
 
-- `--quiet` keeps only the final report.
-- A rich progress bar can later be layered on the same events. It is not part of this proposal
-  because it hides history and behaves differently when output is redirected.
-- An optional file log under `data/logs/` can be attached later through a logging handler.
+```
+[ 1/2] ep1  Episodio 1
+  subs: running
+  subs: done (0.0s)
+  anchor: done (0.0s)
+  audio: running
+  audio: done (9.7s)
+  transcribe: running
+  transcribe: done (41.2s)
+ep1: done 4, skipped 0, stopped at extract
+```
 
-## Why it is not implemented yet
+## Alternatives considered
 
-The commands finish quickly at the current stage, and adding an event layer now would touch the
-orchestrator while its steps are still being built. Revisit when phase 5 or 6 makes a batch run
-long enough to justify it.
+- **Rich progress bar.** Nicer in a terminal, but it hides the history and behaves differently when
+  output is redirected. The event layer leaves the door open to add it later.
+- **Logging only.** A file log is useful for auditing, but it does not show what is happening right
+  now unless the user tails it. Deferred.
+- **Printing from the services.** Simple, but it couples the domain to the terminal and makes the
+  output untestable.
 
-## Consequences when implemented
+## Consequences
 
-- The orchestrator gains a callback; tests keep asserting behavior, not formatting.
-- Progress lines are stable enough for scripts but explicitly not part of the published data.
-- Redirecting stdout to a file no longer hides the running state.
+- The orchestrator measures elapsed time per step and emits events; tests assert behavior, not
+  formatting.
+- Redirecting stdout to a file no longer hides the running state of a batch.
+- The format is stable enough for scripts, but it is not part of the published data.

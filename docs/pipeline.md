@@ -138,8 +138,15 @@ The audio step turns the anchor into a window and downloads only that section.
 - **Redo invalidates downstream.** `--redo <step>` resets that step and every step after it,
   because their output depends on it. Resetting `anchor`, for example, also resets `audio` and
   everything that follows.
-- **Batch keeps going.** `--all` processes every episode in playlist order and does not stop at
-  the first failure; it reports each episode and exits with `1` if any failed.
+- **Batch keeps going on failures.** `--all` reports a failed episode and continues with the next,
+  and the command exits with `1` at the end.
+- **Batch advances by itself.** Without `--redo`, `--all` selects episodes where the last
+  implemented step is not `done`, in playlist order. `--limit N` caps the batch, so rerunning the
+  same command moves through the catalog.
+- **A stop signal ends the batch.** If a step raises `StopBatch` (for example, an exhausted API
+  quota), the step stays `pending`, the batch stops and the remaining episodes are untouched.
+- **Output streams.** A single-episode run writes its step lines to stdout. Batch and sync progress
+  go to stderr, keeping stdout for the final report. `--quiet` suppresses progress.
 - **One state per step.** Starting a step sets `running`; finishing sets `done` or `failed`.
 - **No hidden network calls.** Commands only do the work of their own step. `ingest` never syncs,
   and `sync` never ingests.
@@ -171,8 +178,11 @@ sidecar CSV file.
 |---|---|
 | `dds sync` | Set-level discovery. |
 | `dds episode add <video_id> --title ...` | Manual registration, no network. |
-| `dds ingest <video_id>` | Runs the seven steps, resuming where needed. |
+| `dds ingest <video_id>` | Runs the steps, resuming where needed. Writes step progress to stdout. |
 | `dds ingest <video_id> --redo <step>` | Resets that step and every later one, then runs. |
-| `dds ingest --all` | Runs every registered episode, in playlist order. |
+| `dds ingest --all` | Runs pending episodes through the last implemented step. |
+| `dds ingest --all --limit N` | Same, for the first N pending episodes. |
+| `dds --quiet …` | Suppresses progress; final reports still print. |
+| `dds sync` | Set-level discovery. Progress goes to stderr. |
 | `dds status` | Reads the database and prints one row per episode. |
 | `dds db upgrade` | Applies migrations. Every other command does this implicitly. |

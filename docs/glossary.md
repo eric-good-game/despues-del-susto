@@ -32,3 +32,6 @@ the code or a column in the database.
 | **Artifact** | A file a step writes under `data/` (subtitles, audio, transcripts). Bulky intermediate output, not an entity. |
 | **Idempotency** | Running the same command again does not repeat finished work and does not create duplicates. |
 | **Run** | One invocation of `dds ingest` for one episode. A run resumes from the first step that is not `done`. |
+| **Batch** | One invocation of `dds ingest --all`, optionally capped with `--limit`. It processes pending episodes in playlist order. |
+| **Target step** | The last step that has an implementation. A batch selects episodes where it is not `done`, so the target advances when a phase implements the next step. |
+| **Pending** | An episode has not finished the target step. Only pending episodes are selected by a batch. |
