@@ -79,7 +79,7 @@ without fetching metadata.
 |---|---|---|---|---|
 | `subs` | Get the automatic subtitles. | `video_id` | `data/subs/<video_id>.<lang>.json3` | Real |
 | `anchor` | Find the recommendations section. | Subtitles | Anchor second, kinds, state and evidence in `episode_processing` | Real |
-| `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Stub |
+| `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Real |
 | `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` | Stub |
 | `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` | Stub |
 | `enrich` | Match each work and fetch its details. | Extractions | `data/enriched/<video_id>.json` | Stub |
@@ -110,6 +110,22 @@ recommendations section.
 - It stores `anchor_s`, `anchor_kinds`, `anchor_state`, `tail_s` and `anchor_evidence`. The
   evidence is internal: it exists to review a doubtful detection, never to publish.
 - If there is no subtitle file, the result is `sin_ancla` and the step still succeeds.
+
+### Audio
+
+The audio step turns the anchor into a window and downloads only that section.
+
+- The window rules are `BR-09` to `BR-13` in [`rules.md`](rules.md). The start is stored in
+  `episode_processing.window_start_s` and the reason in `window_origin`.
+- Command: `yt-dlp --download-sections "*<start>-inf" -x --audio-format mp3 --audio-quality 48K
+  --force-keyframes-at-cuts --force-overwrites`.
+- **48 kbps** keeps even the largest window under the 25 MB transcription limit. A higher bitrate
+  would push a 40-minute window over it.
+- **`--force-keyframes-at-cuts`** makes the cut accurate. Without it the audio can start seconds
+  before or after the requested second, and the offset used by the transcription becomes wrong.
+- Artifact: `data/audio/<video_id>.mp3`. Partial files are removed when a download fails.
+- Missing `duration` or anchor data fails with a clear message; the step does not fetch metadata on
+  its own. `--redo audio` downloads the section again.
 
 ## Orchestration
 
@@ -146,7 +162,8 @@ data/
 ```
 
 The database is the source of truth for state. An artifact may be regenerated; a step's recorded
-state is what decides whether it runs again.
+state is what decides whether it runs again. The audio offset lives in the database, not in a
+sidecar CSV file.
 
 ## Commands
 

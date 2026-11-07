@@ -54,10 +54,11 @@ as opposed to `processing_steps`, which only tracks orchestration.
 | `anchor_state` | text, nullable | `ok`, `parcial` or `sin_ancla`. |
 | `anchor_evidence` | text, nullable | *Internal.* Fragment that triggered the detection, for review. |
 | `tail_s` | integer, nullable | Seconds from the anchor to the end of the episode. |
+| `window_start_s` | integer, nullable | Second where the downloaded audio starts. |
+| `window_origin` | text, nullable | `anchor`, `fallback` or `expanded`. |
 | `updated_at` | timestamp | |
 
-The audio window, transcription provider and extraction model are added to this table in their
-phases.
+The transcription provider and the extraction model are added to this table in their phases.
 
 ## Integrity rules
 
@@ -76,10 +77,16 @@ phases.
 - `subtitles_available = false` implies `anchor_state = sin_ancla`.
 - `anchor_state` is `ok`, `parcial` or `sin_ancla` once the anchor step has run, and empty before.
 - `anchor_evidence` is internal and never published.
+- `window_start_s` is never below 0. The audio always reaches the end of the episode, so no end
+  field is stored.
+- `window_origin` is `anchor`, `fallback` or `expanded` once the audio step has run, and empty
+  before.
+- `window_start_s` and `window_origin` are written only after the audio file was downloaded
+  successfully.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
   `in progress`, `failed`, `complete`).
 
 ## Not defined yet
 
 `works`, `recommendations`, `availability` of works, candidates and publication data. They arrive
-with the phases that need them. The audio window fields will join `episode_processing` in phase 4.
+with the phases that need them. The transcription fields will join `episode_processing` in phase 5.

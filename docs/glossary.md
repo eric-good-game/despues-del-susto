@@ -20,6 +20,12 @@ the code or a column in the database.
 | **Anchor state** | `ok` when both game and movie signals appear, `parcial` when one is missing, `sin_ancla` when none. |
 | **Tail** | Seconds from the anchor to the end of the episode. |
 | **Evidence** | The subtitle fragment that triggered a detection, stored to review doubtful cases. Internal. |
+| **Window** | The audio section that is downloaded and transcribed: from the window start to the end of the episode. |
+| **Window start** | Second where the downloaded audio begins. It is added to the transcript times to get real episode seconds. |
+| **Window origin** | Why that start was chosen: `anchor`, `fallback` or `expanded`. |
+| **Margin** | Seconds downloaded before the anchor so the start of the section is not cut off. It depends on the anchor state. |
+| **Fallback** | The window used when there is no anchor: the last 45 % of the episode, capped at 1500 s. |
+| **Expanded window** | A larger fallback (last 60 %, capped at 2400 s) used only when the extraction is incomplete. |
 | **Availability** | Whether an episode is still reachable: `available` or `unavailable`. Missing videos are marked, never deleted. |
 | **Step** | One unit of the per-episode pipeline: `subs`, `anchor`, `audio`, `transcribe`, `extract`, `enrich`, `publish`. |
 | **Processing** | The recorded state of each step for an episode: `pending`, `running`, `done` or `failed`, with timestamps and the last error. |
