@@ -21,6 +21,12 @@ measured and adjusted with real episodes.
 | Transcription model | `whisper-large-v3` | BR-16 |
 | Maximum audio upload | 25 MB (provider limit) | BR-19 |
 | Transcription retry waits | 5, 15, 45, 90 s | BR-20 |
+| Match threshold | `0.85` | BR-35 |
+| Minimum difference between the top two candidates | `0.05` | BR-37 |
+| Year tolerance for tie-breaking | `1` year | BR-37 |
+| Maximum stored candidates per recommendation | `5` | BR-41 |
+| TMDB search languages | `es-MX` and `en-US` | BR-33 |
+| IGDB request spacing | `0.26` s | BR-40 |
 
 ## Anchor detection
 
@@ -73,6 +79,24 @@ measured and adjusted with real episodes.
 | BR-30 | Re-running the step replaces automatic recommendations for the episode. Manual decisions are not overwritten; manual review arrives in a later phase. | Decision |
 | BR-31 | Completeness is recorded as warnings, not as a step failure. No expanded-window retry exists in this version. | Decision |
 
+## Enrichment
+
+| ID | Rule | Origin |
+|---|---|---|
+| BR-32 | Movies and series are searched in TMDB both as movies and as series. Videogames are searched in IGDB. Books and `other` go to `manual_pending` without an API call. | Decision |
+| BR-33 | The query is `probable_title`, or `mentioned_title` when the probable one is empty. A trailing parenthetical is removed; a year inside the title is kept as a hint. TMDB is searched in `es-MX` and `en-US` to cover both localized and original titles. | Initial |
+| BR-34 | The score is the maximum similarity between the normalized query and the candidate's title or original title, from 0 to 1. | Initial |
+| BR-35 | A score of `0.85` or more is `confirmed`; below it is `needs_review`; no candidates is `no_match`. | Initial |
+| BR-36 | A recommendation with `low` confidence goes to `needs_review` even if the score is high. | Initial |
+| BR-37 | If the two best candidates differ by less than `0.05`, a year hint within ±1 year breaks the tie. If it still does not resolve, the recommendation goes to `needs_review`. | Initial |
+| BR-38 | If the chosen candidate's type differs from the extracted type, the recommendation goes to `needs_review`. | Initial |
+| BR-39 | If confidence is not `high` and the mentioned title does not resemble the chosen work (similarity below `0.5`), the recommendation goes to `needs_review` with `uncertain_title`. | Initial |
+| BR-40 | A confirmed recommendation creates or reuses one work per `(source, external_id)`, fetches its details and stores title, original title, year, genres, description, image and source URL. | Decision |
+| BR-41 | Up to 5 candidates are stored per recommendation. On a confirmed match, the chosen one is marked. | Initial |
+| BR-42 | Re-enriching replaces the recommendation's automatic candidates and match, and removes works that no recommendation points to. | Decision |
+| BR-43 | Match scores, notes, candidates and the mention second are internal. They are never published. | Decision |
+| BR-44 | Prices are never stored or shown. Availability arrives with its own phase. | Decision |
+
 ## How the initial values are validated
 
 After processing the 50 existing episodes, measure:
@@ -104,3 +128,10 @@ After the first 5 to 10 extractions, also check:
 - How often a work is extracted from a passing mention rather than a recommendation.
 - The distribution of warning codes, especially `missing_videogame` and `missing_movie`.
 - Whether the probable titles are good enough for enrichment to match automatically.
+
+After the first catalog pass, also check:
+
+- The distribution of `confirmed`, `needs_review`, `no_match` and `manual_pending`.
+- Which confirmed matches are wrong when reviewed by hand; that is the number the threshold and the year rule must reduce.
+- How often the year tie-break resolves what would otherwise be a close call.
+- Whether the `uncertain_title` guard sends cases that were actually correct to review.

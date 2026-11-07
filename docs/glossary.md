@@ -36,6 +36,11 @@ the code or a column in the database.
 | **Declared count** | How many recommendations the audio says it has. Used to detect missing ones. |
 | **Completeness** | Whether the episode has the expected primary works. It is recorded as warnings, not as a failure. |
 | **Warning** | A code in the extraction describing a gap, such as `missing_videogame` or `fewer_than_declared`. |
+| **Work** | A catalog entry resolved against TMDB or IGDB: a videogame, movie or series. |
+| **Match** | The connection between a recommendation and a work, made by comparing titles. |
+| **Score** | Similarity between the query and a candidate, from 0 to 1. Internal. |
+| **Candidate** | A possible match returned by a provider, stored for review when the decision is not clear. |
+| **Source** | The provider a work comes from: `TMDB`, `IGDB` or `manual`. |
 | **Availability** | Whether an episode is still reachable: `available` or `unavailable`. Missing videos are marked, never deleted. |
 | **Step** | One unit of the per-episode pipeline: `subs`, `anchor`, `audio`, `transcribe`, `extract`, `enrich`, `publish`. |
 | **Processing** | The recorded state of each step for an episode: `pending`, `running`, `done` or `failed`, with timestamps and the last error. |

@@ -66,8 +66,6 @@ as opposed to `processing_steps`, which only tracks orchestration.
 | `extraction_warnings` | text, nullable | Comma-separated warning codes. |
 | `updated_at` | timestamp | |
 
-The works and enrichment fields join this table in phase 7.
-
 ## `recommendations`
 
 One row per work mentioned as a recommendation in an episode.
@@ -76,19 +74,62 @@ One row per work mentioned as a recommendation in an episode.
 |---|---|---|
 | `id` | integer, primary key | |
 | `episode_id` | integer, foreign key → `episodes.id` | Deleting an episode deletes its recommendations. |
-| `work_id` | integer, nullable | Resolved in phase 7. |
+| `work_id` | integer, nullable, foreign key → `works.id` | Set when the match is confirmed. |
 | `type` | text | `videogame`, `movie`, `series`, `book` or `other`. |
 | `role` | text | `primary` or `additional`. |
-| `state` | text | Starts as `extracted`; enrichment adds the rest. |
+| `state` | text | `extracted`, `confirmed`, `needs_review`, `no_match` or `manual_pending`. |
 | `mentioned_title` | text | As it appears in the transcript. |
 | `probable_title` | text, nullable | The model's best guess, if any. |
 | `related_mentions` | text, nullable | Derived works named alongside this one. |
 | `confidence` | text | `high`, `medium` or `low`. |
 | `mention_s` | integer, nullable | *Internal.* Episode second where the mention starts. |
 | `mentioned_platform` | text, nullable | *Internal.* Platform said in the audio. |
+| `match_score` | decimal, nullable | *Internal.* Similarity of the chosen candidate, 0 to 1. |
+| `match_note` | text, nullable | *Internal.* Why the state was chosen. |
 | `decided_by` | text | `automatic` or `manual`. |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
+
+## `works`
+
+One row per resolved catalog work.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | integer, primary key | |
+| `type` | text | `videogame`, `movie` or `series`. |
+| `source` | text | `TMDB`, `IGDB` or `manual`. |
+| `external_id` | text | Identifier in the source. |
+| `official_title` | text | Localized title when the source has one. |
+| `original_title` | text, nullable | |
+| `year` | integer, nullable | |
+| `genres` | text, nullable | Comma-separated. |
+| `description` | text, nullable | Short description allowed by the source. |
+| `image_url` | text, nullable | Poster or cover served by the source. |
+| `source_url` | text, nullable | Work page in the source, for attribution. |
+| `data_updated_at` | timestamp | Last time the details were fetched. |
+| `created_at` | timestamp | |
+| `updated_at` | timestamp | |
+
+Unique: `(source, external_id)`.
+
+## `candidates`
+
+Possible matches stored for review.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | integer, primary key | |
+| `recommendation_id` | integer, foreign key → `recommendations.id` | |
+| `source` | text | `TMDB` or `IGDB`. |
+| `type` | text | `movie`, `series` or `videogame`. |
+| `external_id` | text | |
+| `title` | text | |
+| `year` | integer, nullable | |
+| `image_url` | text, nullable | |
+| `score` | decimal | Similarity, 0 to 1. |
+| `origin` | text | `api` for now; subtitle candidates arrive later. |
+| `chosen` | boolean | True for the confirmed match. |
 
 ## Integrity rules
 
@@ -120,13 +161,19 @@ One row per work mentioned as a recommendation in an episode.
   set. Manual rows are kept.
 - A recommendation has `role = primary` only for the expected primary works; everything else is
   `additional`.
-- `state` starts as `extracted`; enrichment moves it to the matching states.
-- `work_id` is empty until enrichment resolves the work.
+- `state` starts as `extracted`. `confirmed` requires `work_id`; `needs_review`, `no_match` and
+  `manual_pending` leave it empty.
+- A work is unique by `(source, external_id)`. Two episodes can point to the same work.
+- Up to 5 candidates are stored per recommendation, and at most one is `chosen`; only a confirmed
+  recommendation marks one.
+- Re-enriching replaces the recommendation's automatic candidates and match, and deletes works that
+  no recommendation references.
+- `match_score`, `match_note`, candidates and `mention_s` are internal and never published.
 - `mention_s` and `mentioned_platform` are internal and never published.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
   `in progress`, `failed`, `complete`).
 
 ## Not defined yet
 
-`works`, `availability` of works, candidates, publication data and the enrichment fields. They
-arrive in phase 7.
+`availability` of works, availability checks and publication data. They arrive in phase 7b and
+later phases.

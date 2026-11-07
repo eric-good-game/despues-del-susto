@@ -15,7 +15,7 @@ data/
   audio/<video_id>.mp3                # audio window
   transcripts/<video_id>.json         # transcript with seconds
   extractions/<video_id>.json         # raw model output
-  enriched/<video_id>.json            # matched works and details
+  cache/<provider>/                   # cached provider responses
 ```
 
 - **The database is the source of truth for state.** Whether a step ran, and whether it succeeded,
@@ -26,6 +26,8 @@ data/
   found without the database and inspected by hand.
 - **Metadata that later steps need** (window start, anchor second) goes into the database, not into
   sidecar CSV files. The prototype used `offsets.csv`; that pattern is retired.
+- **Enrichment lives in the database.** Works and candidates are rows, not an `enriched/` file; the
+  provider responses are cached under `data/cache/` for debugging and reuse.
 - **Nothing under `data/` is versioned.**
 
 ## Consequences

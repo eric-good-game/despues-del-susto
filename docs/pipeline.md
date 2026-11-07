@@ -82,7 +82,7 @@ without fetching metadata.
 | `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Real |
 | `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` and `.txt` | Real |
 | `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` and recommendation rows | Real |
-| `enrich` | Match each work and fetch its details. | Extractions | `data/enriched/<video_id>.json` | Stub |
+| `enrich` | Match each work, fetch its details and store the catalog work. | Recommendations | `works`, `candidates` and match state in the database | Real |
 | `publish` | Produce the data the site will read. | Resolved episode | Publication artifact | Stub |
 
 ### Subtitles
@@ -163,6 +163,29 @@ The extraction step asks a chat model for the recommendations and stores them.
   overwritten when review arrives.
 - There is **no expanded-window retry**: an incomplete extraction is recorded and left for review.
 
+### Enrichment
+
+The enrichment step matches each extracted recommendation against the metadata providers.
+
+- **Sources by type:** movies and series in TMDB, videogames in IGDB. Books and `other` go to
+  `manual_pending` without a call.
+- **Search both sides.** A movie or series recommendation is searched in TMDB as a movie and as a
+  series, and in `es-MX` and `en-US`, because the model's probable title may be the localized or
+  the original one.
+- **Scoring:** normalized title similarity against the candidate's title and original title, taking
+  the best. Threshold `0.85`; below it, `needs_review`.
+- **Tie-breaking:** when the top two are within `0.05`, a year hint within ±1 year resolves it;
+  otherwise it goes to review. The `Devil May Cry (2001)` case is the reference.
+- **Guards:** low confidence and a mentioned title that does not resemble the chosen work go to
+  review even when the score is high.
+- **Confirmed** creates or reuses a work by `(source, external_id)`, fetches its details and links
+  the recommendation. Up to 5 candidates are stored on every recommendation.
+- **Cache and pacing:** provider responses are cached under `data/cache/`; IGDB calls are spaced by
+  `DDS_IGDB_DELAY_S`. A rate limit raises `StopBatch`.
+- Re-enriching replaces automatic candidates and matches, and removes works that no recommendation
+  points to.
+- Availability is **not** part of this step yet; it arrives in phase 7b.
+
 ## Orchestration
 
 - **Resumable.** A run skips every step whose state is `done`. The first step that is not `done`
@@ -202,7 +225,7 @@ data/
   transcripts/<video_id>.json
   transcripts/<video_id>.txt
   extractions/<video_id>.json
-  enriched/<video_id>.json
+  cache/<provider>/
 ```
 
 The database is the source of truth for state. An artifact may be regenerated; a step's recorded
