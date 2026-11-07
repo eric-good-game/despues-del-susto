@@ -26,6 +26,10 @@ the code or a column in the database.
 | **Margin** | Seconds downloaded before the anchor so the start of the section is not cut off. It depends on the anchor state. |
 | **Fallback** | The window used when there is no anchor: the last 45 % of the episode, capped at 1500 s. |
 | **Expanded window** | A larger fallback (last 60 %, capped at 2400 s) used only when the extraction is incomplete. |
+| **Transcript** | Text with seconds produced by the transcription step. Stored as JSON and TXT; internal and never published. |
+| **Segment** | One timed line of the transcript: a start second and its text. |
+| **Provider** | External service that performs a job for the pipeline: Groq for transcription, TMDB and IGDB for enrichment. |
+| **Quota** | Usage limit of a free tier. When it is exhausted, the step stops the batch instead of failing every remaining episode. |
 | **Availability** | Whether an episode is still reachable: `available` or `unavailable`. Missing videos are marked, never deleted. |
 | **Step** | One unit of the per-episode pipeline: `subs`, `anchor`, `audio`, `transcribe`, `extract`, `enrich`, `publish`. |
 | **Processing** | The recorded state of each step for an episode: `pending`, `running`, `done` or `failed`, with timestamps and the last error. |

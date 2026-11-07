@@ -80,7 +80,7 @@ without fetching metadata.
 | `subs` | Get the automatic subtitles. | `video_id` | `data/subs/<video_id>.<lang>.json3` | Real |
 | `anchor` | Find the recommendations section. | Subtitles | Anchor second, kinds, state and evidence in `episode_processing` | Real |
 | `audio` | Download the audio window. | `video_id` and window start | `data/audio/<video_id>.mp3` and the window start in the database | Real |
-| `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` | Stub |
+| `transcribe` | Turn the audio window into text with seconds. | Audio and window start | `data/transcripts/<video_id>.json` and `.txt` | Real |
 | `extract` | Pull recommendations out of the transcript. | Transcript | `data/extractions/<video_id>.json` | Stub |
 | `enrich` | Match each work and fetch its details. | Extractions | `data/enriched/<video_id>.json` | Stub |
 | `publish` | Produce the data the site will read. | Resolved episode | Publication artifact | Stub |
@@ -127,6 +127,23 @@ The audio step turns the anchor into a window and downloads only that section.
 - Missing `duration` or anchor data fails with a clear message; the step does not fetch metadata on
   its own. `--redo audio` downloads the section again.
 
+### Transcription
+
+The transcription step sends the audio window to Groq and stores the text with episode seconds.
+
+- Model: `whisper-large-v3` in Spanish, `verbose_json`, segment timestamps.
+- **One request per episode.** The 48 kbps window stays under the 25 MB limit; the step fails
+  instead of uploading a larger file.
+- Each segment is stored as `segment start + window_start_s`, so transcript times are real episode
+  seconds and can be compared with the anchor.
+- Artifacts: `data/transcripts/<video_id>.json` (list of `{t, text}`) and
+  `data/transcripts/<video_id>.txt` (human-readable). Both are written atomically.
+- Transient errors (429, 5xx, timeouts) are retried with waits of 5, 15, 45 and 90 seconds. A rate
+  limit or exhausted quota after the retries raises `StopBatch`: the step stays `pending` and the
+  batch stops. Credential and validation errors fail immediately.
+- A transcription with zero segments is a failure, not an empty success.
+- Local `faster-whisper` is not wired yet; it stays as a fallback decision for later.
+
 ## Orchestration
 
 - **Resumable.** A run skips every step whose state is `done`. The first step that is not `done`
@@ -164,6 +181,7 @@ data/
   subs/<video_id>.<lang>.json3
   audio/<video_id>.mp3
   transcripts/<video_id>.json
+  transcripts/<video_id>.txt
   extractions/<video_id>.json
   enriched/<video_id>.json
 ```

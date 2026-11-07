@@ -56,9 +56,12 @@ as opposed to `processing_steps`, which only tracks orchestration.
 | `tail_s` | integer, nullable | Seconds from the anchor to the end of the episode. |
 | `window_start_s` | integer, nullable | Second where the downloaded audio starts. |
 | `window_origin` | text, nullable | `anchor`, `fallback` or `expanded`. |
+| `transcription_service` | text, nullable | Provider that produced the transcript, for example `groq`. |
+| `transcription_model` | text, nullable | Model used, for example `whisper-large-v3`. |
+| `transcribed_at` | timestamp, nullable | When the transcript was completed. |
 | `updated_at` | timestamp | |
 
-The transcription provider and the extraction model are added to this table in their phases.
+The extraction fields are added to this table in their phase.
 
 ## Integrity rules
 
@@ -83,10 +86,14 @@ The transcription provider and the extraction model are added to this table in t
   before.
 - `window_start_s` and `window_origin` are written only after the audio file was downloaded
   successfully.
+- `transcription_service`, `transcription_model` and `transcribed_at` are written only after a
+  transcript with at least one segment was stored.
+- A transcript artifact may be regenerated; the step state decides whether it exists for the
+  pipeline.
 - The derived state of an episode is not stored: it is computed from its steps (`not started`,
   `in progress`, `failed`, `complete`).
 
 ## Not defined yet
 
 `works`, `recommendations`, `availability` of works, candidates and publication data. They arrive
-with the phases that need them. The transcription fields will join `episode_processing` in phase 5.
+with the phases that need them. The extraction fields will join `episode_processing` in phase 6.

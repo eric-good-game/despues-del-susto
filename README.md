@@ -8,8 +8,8 @@ episode of the *Tengo Miedo* podcast.
 ## Status
 
 Version 1 runs entirely on the author's machine, in Python. There is no web server yet; publishing
-is a later phase. The project is at **phase 5, transcription**: progress output and batch runs are
-in place; the transcription step is next. See [`WORKFLOW.md`](WORKFLOW.md) and
+is a later phase. The project is at **phase 5, transcription**: the playlist, subtitles, anchor,
+audio window and transcript are done; extraction is next. See [`WORKFLOW.md`](WORKFLOW.md) and
 [`docs/pipeline.md`](docs/pipeline.md).
 
 ## Why local first

@@ -20,6 +20,9 @@ measured and adjusted with real episodes.
 | Fallback cap | `1500` s | BR-11 |
 | Expanded-window share | `0.60` of the episode | BR-14 |
 | Expanded-window cap | `2400` s | BR-14 |
+| Transcription model | `whisper-large-v3` | BR-16 |
+| Maximum audio upload | 25 MB (provider limit) | BR-19 |
+| Transcription retry waits | 5, 15, 45, 90 s | BR-20 |
 
 ## Anchor detection
 
@@ -46,6 +49,17 @@ measured and adjusted with real episodes.
 | BR-14 | The expanded window is the last 60 % of the episode, capped at 2400 s. It is used only when the extraction is incomplete; its trigger belongs to phase 6. | Initial |
 | BR-15 | Audio is downloaded and kept only for analysis. It is never published, uploaded or shared. | Decision |
 
+## Transcription
+
+| ID | Rule | Origin |
+|---|---|---|
+| BR-16 | Transcription uses Groq with the `whisper-large-v3` model and language `es`. | Decision |
+| BR-17 | The transcript is internal. It is never published, in whole or in part. | Decision |
+| BR-18 | Every segment is stored in real episode seconds: the segment start plus `window_start_s`. | Decision |
+| BR-19 | One request per episode. If the audio file exceeds the provider's 25 MB limit, the step fails instead of uploading it. | Decision |
+| BR-20 | Transient errors (429, 5xx, timeouts) are retried. A rate limit or exhausted quota after the retries stops the batch and leaves the step `pending`. Credential and validation errors are not retried. | Initial |
+| BR-21 | The step writes a JSON transcript and a human-readable TXT. A transcription with zero segments is a failure. | Decision |
+
 ## How the initial values are validated
 
 After processing the 50 existing episodes, measure:
@@ -64,3 +78,9 @@ After the first 5 to 10 windows are downloaded, also check:
   starts in the audio.
 - Whether any window exceeds the transcription size limit. If so, BR-14 or the transcription
   chunking will absorb it.
+
+After the first 3 to 5 transcripts, also check:
+
+- How often proper names come out wrong; that is the error the subtitle cross-check exists for.
+- The elapsed time per episode, to plan batches around the quota.
+- Whether the offsets land on the expected lines when compared with the anchor.
