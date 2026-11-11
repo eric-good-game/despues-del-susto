@@ -79,9 +79,13 @@ One row per work mentioned as a recommendation in an episode.
 | `role` | text | `primary` or `additional`. |
 | `state` | text | `extracted`, `confirmed`, `needs_review`, `no_match`, `manual_pending`, `manual_resolved` or `discarded`. |
 | `mentioned_title` | text | As it appears in the transcript. |
-| `probable_title` | text, nullable | The model's best guess, if any. |
+| `corrected_title` | text, nullable | *Internal.* A transcription fix of the mentioned title (same work and language, close in wording). Only a light repair; a different title goes to `probable_title`. |
+| `probable_title` | text, nullable | The model's best guess of the official title, if any. May be another language or work. |
+| `alternate_titles` | text (JSON list), nullable | *Internal.* Other names for the **same** work that the host states aloud (translations, aliases, e.g. "en español se llama Madre Siniestra"). Only when said; searched as literal-labeled queries. |
 | `related_mentions` | text, nullable | Derived works named alongside this one. |
 | `confidence` | text | `high`, `medium` or `low`. |
+| `year` | integer, nullable | The release year, filled only when it is stated explicitly in the audio (never inferred). Used as a tie-breaker during enrichment. |
+| `disambiguation` | text, nullable | *Internal.* The host's own phrase that tells this work apart ("la más viejita", "la coreana", "la del 2007"). Only when said, never inferred, never published. |
 | `mention_s` | integer, nullable | *Internal.* Episode second where the mention starts. |
 | `mentioned_platform` | text, nullable | *Internal.* Platform said in the audio. |
 | `match_score` | decimal, nullable | *Internal.* Similarity of the chosen candidate, 0 to 1. |
@@ -104,6 +108,8 @@ One row per resolved catalog work.
 | `original_title` | text, nullable | |
 | `year` | integer, nullable | |
 | `genres` | text, nullable | Comma-separated. |
+| `original_language` | text, nullable | ISO 639-1 code from the source (for example `es`, `ko`). |
+| `origin_country` | text, nullable | ISO 3166-1 code from the source (for example `MX`, `KR`). |
 | `description` | text, nullable | Short description allowed by the source. |
 | `image_url` | text, nullable | Poster or cover served by the source. |
 | `source_url` | text, nullable | Work page in the source, for attribution. |

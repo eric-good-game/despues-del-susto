@@ -23,9 +23,19 @@ measured and adjusted with real episodes.
 | Transcription retry waits | 5, 15, 45, 90 s | BR-20 |
 | Match threshold | `0.85` | BR-35 |
 | Minimum difference between the top two candidates | `0.05` | BR-37 |
-| Year tolerance for tie-breaking | `1` year | BR-37 |
+| Tie-break genre family | `terror, horror, misterio, mystery, suspenso, suspense, thriller` | BR-37 |
+| Short genres (yield to feature) | `short, cortometraje, corto` | BR-37 |
+| Era markers (old vs new) | `viejita, clásica, antigua, original, blanco y negro` / `nueva, reciente, remake…` | BR-37 |
+| Country markers → `origin_country` | coreana→KR, japonesa→JP, española→ES, argentina→AR, mexicana→MX… | BR-37 |
+| Year tolerance for tie-breaking | `1` year; `2` years when read from the disambiguation phrase | BR-37 |
+| Final tie-break | popularity of the provider candidate (always noted) | BR-37 |
 | Maximum stored candidates per recommendation | `5` | BR-41 |
 | TMDB search languages | `es-MX` and `en-US` | BR-33 |
+| Title queries searched | `mentioned`, `corrected`, `probable`, `alternate` (deduped, literal-first) | BR-33, BR-34 |
+| Local title variants | article removal, trailing number removal, known translations | BR-33 |
+| `corrected_title` similarity floor | ratio `70` vs `mentioned_title` (else dropped) | BR-33 |
+| Provenance guard (`uncertain_title`) | only for probable-only, non-high, similarity `< 0.5` | BR-39 |
+| Probable-resolves-to-real waiver | probable-only match at similarity `>= 0.90` confirms (`probable_strong`) | BR-39 |
 | IGDB request spacing | `0.26` s | BR-40 |
 
 ## Anchor detection
@@ -72,7 +82,7 @@ measured and adjusted with real episodes.
 | BR-23 | The expected format is 1 videogame and 1 movie; a series, a book or an extra movie are additional works. | Decision |
 | BR-24 | Roles: the first videogame and the first movie are `primary`; everything else is `additional`. If there is no movie, the first series takes the primary place and gets the `series_in_place_of_movie` warning. | Decision |
 | BR-25 | Sequels, spin-offs and related series named alongside a work go to `related_mentions`; they do not create separate rows unless offered as a new recommendation. | Initial |
-| BR-26 | Confidence is `high`, `medium` or `low`. Low confidence is expected to go to review during enrichment. | Initial |
+| BR-26 | Confidence is `high`, `medium` or `low`. Low confidence is expected to go to review during enrichment. The model may return a `corrected_title` (a transcription fix close to the mentioned title), `alternate_titles` (other names the host says **for the same work**: translations/aliases), a release `year` and a `disambiguation` phrase, but only the parts supported by the audio: it never infers them. A `corrected_title` that drifts too far from the mention (ratio below the floor) is dropped, because that is a probable, not a correction. Sequels/spin-offs go to `related_mentions`, never to `alternate_titles`. A year that appears only as a colloquial identifier ("la del 2007 o por ahí") goes to `disambiguation`, not to `year`. When a field is not said, it is null. | Initial |
 | BR-27 | When the audio declares a number of recommendations, it is stored as `declared_count`. Extracting fewer adds `fewer_than_declared`. | Initial |
 | BR-28 | The `type` returned by the model is a hypothesis; the final type comes from the enrichment match. | Initial |
 | BR-29 | The extraction and its artifact are internal. They are never published. | Decision |
@@ -84,17 +94,17 @@ measured and adjusted with real episodes.
 | ID | Rule | Origin |
 |---|---|---|
 | BR-32 | Movies and series are searched in TMDB both as movies and as series. Videogames are searched in IGDB. Books and `other` go to `manual_pending` without an API call. | Decision |
-| BR-33 | The query is `probable_title`, or `mentioned_title` when the probable one is empty. A trailing parenthetical is removed; a year inside the title is kept as a hint. TMDB is searched in `es-MX` and `en-US` to cover both localized and original titles. | Initial |
-| BR-34 | The score is the maximum similarity between the normalized query and the candidate's title or original title, from 0 to 1. | Initial |
+| BR-33 | The provider is searched with **all extracted titles** — `mentioned_title`, `corrected_title`, `probable_title` and each `alternate_titles` entry — as separate labeled queries (trailing parentheticals removed). TMDB is searched in `es-MX` and `en-US`, and each query is expanded with local variants (article removal, trailing number removal, known translations). The search is **unfiltered**: year and genre are not sent to the API, because a wrong or approximate year would drop the correct candidate. | Initial |
+| BR-34 | A candidate's score is the best similarity over the labeled queries and their variants, against the candidate's title or original title, 0 to 1. The **origin** is the most literal label that attains that score (`mentioned` > `corrected` > `probable` > `alternate`); it is stored in the note as `from_*`. `mentioned`, `corrected` and `alternate` are titles the host said, so all three are trusted as literal; only `probable` is a model guess. | Initial |
 | BR-35 | A score of `0.85` or more is `confirmed`; below it is `needs_review`; no candidates is `no_match`. | Initial |
-| BR-36 | A recommendation with `low` confidence goes to `needs_review` even if the score is high. | Initial |
-| BR-37 | If the two best candidates differ by less than `0.05`, a year hint within ±1 year breaks the tie. If it still does not resolve, the recommendation goes to `needs_review`. | Initial |
-| BR-38 | If the chosen candidate's type differs from the extracted type, the recommendation goes to `needs_review`. | Initial |
-| BR-39 | If confidence is not `high` and the mentioned title does not resemble the chosen work (similarity below `0.5`), the recommendation goes to `needs_review` with `uncertain_title`. | Initial |
+| BR-36 | A recommendation with `low` confidence goes to `needs_review` even if the score is high, **unless** the match is literal (origin `mentioned`/`corrected`/`alternate`) or the `disambiguation` phrase settles the version (era, country or a hint year): either overrides the low-confidence guard. | Initial |
+| BR-37 | When the top candidates are within `0.05` of each other, the tie breaks in steps: (1) **Type:** same-type candidates win (`resolved_by_type`); a short yields to a feature of the same type (`shorts_yielded`), a short alone is kept with `only_short`. (2) **Genre:** a single horror-family candidate wins (`resolved_by_genre`). (3) **Era:** a hint word ("la más viejita" / "nueva") narrows to the oldest or newest group; a single one wins (`resolved_by_era`), several continue narrowed (`era_group`). (4) **Country:** a hint word ("la coreana") picks the candidate whose `origin_country` matches (`resolved_by_country`). (5) **Year:** an explicit hint within ±1 wins (`resolved_by_year`); if none, a year read from the hint within ±2 wins (`resolved_by_hint_year`). (6) **Popularity:** the most popular remaining candidate wins (`resolved_by_popularity`), always flagged. Type/genre/year use the recommendation data; era/country/hint-year use the `disambiguation` phrase. | Initial |
+| BR-38 | When only the other medium matches (a series for a movie recommendation, or the reverse), the recommendation keeps that work instead of going to review and records `type_substituted` in the note. When both media share the name, the expected one is chosen and the note records `same_title_other_type` so the author can catch the rare case where the recommendation really was the other medium. | Initial |
+| BR-39 | If the match is **probable-only** (origin `probable`, not a host-stated `mentioned`/`corrected`/`alternate` title), confidence is not `high`, no disambiguation settles it, and the mentioned title does not resemble the chosen work (similarity below `0.5`), the recommendation goes to `needs_review` with `uncertain_title`. A literal match never triggers this guard, which is what lets a mistranscribed or localized title confirm cleanly. The guard is **waived** when the probable resolves to a real catalog work at similarity `>= 0.90` (`PROBABLY_REAL_MATCH`): the match is confirmed and flagged `probable_strong` for audit. This is what lets `"No vayas a casa"` -> `"Don't Come Home"` confirm. | Initial |
 | BR-40 | A confirmed recommendation creates or reuses one work per `(source, external_id)`, fetches its details and stores title, original title, year, genres, description, image and source URL. | Decision |
 | BR-41 | Up to 5 candidates are stored per recommendation. On a confirmed match, the chosen one is marked. | Initial |
 | BR-42 | Re-enriching replaces the recommendation's automatic candidates and match, and removes works that no recommendation points to. | Decision |
-| BR-43 | Match scores, notes, candidates and the mention second are internal. They are never published. | Decision |
+| BR-43 | Match scores, notes, candidates, the corrected title, the disambiguation phrase and the mention second are internal. They are never published. | Decision |
 | BR-44 | Prices are never stored or shown. Availability arrives with its own phase. | Decision |
 
 ## Review
@@ -108,7 +118,7 @@ measured and adjusted with real episodes.
 | BR-49 | Manual decisions are never overwritten by enrichment, which only processes `decided_by = automatic` rows. | Decision |
 | BR-50 | Correcting a confirmed match is allowed; the previous work is removed if no recommendation points to it anymore. | Decision |
 | BR-51 | A new search during review replaces the stored candidates with up to 5 results and marks the chosen one. | Initial |
-| BR-52 | Mention seconds, match scores, notes and candidates remain internal. | Decision |
+| BR-52 | Mention seconds, match scores, notes, the disambiguation phrase and candidates remain internal. | Decision |
 | BR-53 | `review status` is only a workload summary; it does not approve an episode for publication. Publication arrives with the site phase. | Decision |
 
 ## How the initial values are validated

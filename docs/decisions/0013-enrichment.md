@@ -11,16 +11,44 @@ so this phase defines the matching contract.
 
 - **Sources by type:** movies and series in TMDB, videogames in IGDB. Books and `other` are
   `manual_pending`; there is no automatic source for them.
-- **Search both TMDB types and both languages.** A movie or series is searched as a movie and as a
-  series, in `es-MX` and `en-US`. The model's probable title may be localized or original; the
-  Huesera case showed that searching only in Spanish misses the English title.
+- **Labeled queries for every stated title.** `mentioned`, `corrected`, `probable` and each
+  `alternate` title are searched (TMDB as movie and series, in `es-MX` and `en-US`), deduplicated
+  literal-first. Separating the transcription fix (`corrected`), the semantic re-identification
+  (`probable`) and the **host-stated aliases/translations** (`alternate`) lets enrichment know *where*
+  a match came from. The Huesera case showed searching only in Spanish misses the English title;
+  `"Other Mother"` vs `"Other Mommy / Madre siniestra (2026)"` showed the reverse: the audio names
+  the Spanish title explicitly, and capturing it as an `alternate` is what finds the right work.
+- **Provenance.** Each candidate keeps the most literal label that scores it (`mentioned` >
+  `corrected` > `probable`), recorded as `from_*`. A literal match is trusted; a probable-only match
+  is a guess and is held to a higher bar. This is what fixes the `"No vayas a casa"` / `"Don't Come
+  Home"` false `uncertain_title`: the Spanish mention now matches the localized catalog title, so the
+  origin is literal.
+- **Local title variants.** Each query is expanded with article removal, trailing number removal
+  and a small dictionary of known translations. Keyword fragments are avoided because short fragments
+  match unrelated titles and create false ties. Candidates are scored against the best variant.
+- **Unfiltered provider search.** The year is not sent to the API as a filter; a wrong or
+  approximate year drops the correct candidate. Year, genre and the disambiguation phrase only break
+  ties afterward.
+- **Disambiguation phrase.** Extraction may store a `disambiguation` string — the host's own words
+  that identify which version is meant ("la más viejita", "la coreana", "la del 2007 o por ahí") —
+  only when said. Enrichment reads era, country and approximate-year signals from it to settle
+  same-title ties. A colloquial year stays here, not in `year`.
+- **Tie-breaking by type, genre, era, country, year, popularity.** For candidates within `0.05`:
+  same-medium (`resolved_by_type`, shorts yielding to features), a single horror-family genre
+  (`resolved_by_genre`), era and country words from the hint (`resolved_by_era`,
+  `resolved_by_country`), an explicit year within ±1 (`resolved_by_year`) or a hint year within ±2
+  (`resolved_by_hint_year`), then the most popular (`resolved_by_popularity`, always flagged). A
+  wrong-medium-only match is kept with `type_substituted`; `low` confidence is overridden when the
+  hint settles the version.
 - **Score with `rapidfuzz`** over the normalized title and original title, taking the best. It
   handles word order and accents better than `difflib`.
-- **Thresholds:** `0.85` to confirm, `0.05` minimum difference between the top two. A year hint
-  within ±1 year breaks a tie; without it, the case goes to review.
-- **Guards:** low confidence, type mismatch, and a mentioned title that does not resemble the
-  chosen work send the recommendation to review.
-- **One work per `(source, external_id)`.** Confirmed matches upsert the work and fetch its details;
+- **Guards:** a `low` confidence, or a **probable-only** title that does not resemble the chosen
+  work, sends the recommendation to review — unless the match is literal, the `disambiguation` phrase
+  settles the version, or the probable resolves to a real catalog work at similarity `>= 0.90`
+  (`probable_strong`), which trusts a correct translation such as "No vayas a casa" → "Don't Come
+  Home".
+- **One work per `(source, external_id)`.** Confirmed matches upsert the work and fetch its details,
+  storing year, genres, `original_language` and `origin_country` for the future catalog display;
   candidates are stored for review, up to 5 per recommendation.
 - **Re-enrichment replaces** automatic candidates and matches and removes works that no longer have
   a recommendation.

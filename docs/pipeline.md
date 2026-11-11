@@ -151,6 +151,19 @@ The extraction step asks a chat model for the recommendations and stores them.
 - **Provider:** `PROVIDER` selects `gemini`, `groq` or `opencode`. Each has its own key, model and
   fallback list; Groq uses `GROQ_CHAT_MODEL` because `GROQ_MODEL` belongs to transcription.
 - **One call per episode**, temperature `0`, with the transcript as `[t=<second>] text` lines.
+- Each recommendation carries up to four independent titles, and the model never invents any of them:
+  - `mentioned_title`: what the transcript literally says.
+  - `corrected_title`: only a transcription repair of the mention (same words, same language);
+    dropped if it drifts from the mention, because then it is a probable, not a fix.
+  - `probable_title`: the official title if the model recognizes the work, which may be another
+    language or a re-identification ("la del finado" → "Don't Come Home").
+  - `alternate_titles`: other names the host says for the **same** work — translations or aliases
+    ("en español se llama Madre Siniestra"). This is what recovers a Spanish title the audio states
+    but the transcription or the model drops from the other fields.
+- It may also carry a release `year` and a `disambiguation` phrase, but only when said in the audio.
+  A year that only names the version colloquially ("la del 2007 o por ahí") goes to `disambiguation`,
+  not `year`. Enrichment uses these to settle same-title works (remakes, ports, movie-vs-series,
+  "la más viejita").
 - The prompt is in Spanish because the content is Spanish; the JSON keys and values are in English
   (`type`, `mentioned_title`, `confidence`, `videogame`, `movie`…).
 - Invalid JSON is retried; transient errors are retried with the same 5/15/45/90 second waits; a
@@ -169,17 +182,55 @@ The enrichment step matches each extracted recommendation against the metadata p
 
 - **Sources by type:** movies and series in TMDB, videogames in IGDB. Books and `other` go to
   `manual_pending` without a call.
-- **Search both sides.** A movie or series recommendation is searched in TMDB as a movie and as a
-  series, and in `es-MX` and `en-US`, because the model's probable title may be the localized or
-  the original one.
-- **Scoring:** normalized title similarity against the candidate's title and original title, taking
-  the best. Threshold `0.85`; below it, `needs_review`.
-- **Tie-breaking:** when the top two are within `0.05`, a year hint within ±1 year resolves it;
-  otherwise it goes to review. The `Devil May Cry (2001)` case is the reference.
-- **Guards:** low confidence and a mentioned title that does not resemble the chosen work go to
-  review even when the score is high.
+- **Search all titles, both sides.** The `mentioned`, `corrected`, `probable` and each `alternate`
+  title are searched as separate labeled queries (duplicate labels dropped, literal kept first). A
+  movie or series is looked up in TMDB as a movie and as a series, in `es-MX` and `en-US`, so a
+  localized or an original title both surface.
+- **Local variants.** Each query is expanded with article removal, trailing-number removal and a
+  small dictionary of known translations. Keyword fragments are avoided because short fragments match
+  unrelated titles and create false ties.
+- **Unfiltered search.** The year is **not** sent to the API as a filter. A wrong or approximate year
+  would drop the correct candidate (the `"Madre siniestra"` case confirmed this), so year, genre and
+  the disambiguation phrase are only used afterwards to break ties.
+- **Scoring with provenance.** A candidate's score is the best similarity over the labeled queries
+  and their variants; the **origin** is the most literal label that attains it (`mentioned` >
+  `corrected` > `probable` > `alternate`), recorded as `from_*` in the note. `mentioned`, `corrected`
+  and `alternate` are titles the host said (trusted like a literal match); only `probable` is a guess.
+  Deduplicated by `(source, external_id)`, sorted by score then popularity. Threshold `0.85`; below
+  it, `needs_review`.
+- **Tie-breaking:** when the top candidates are within `0.05`, the tie resolves in steps.
+  - **Type** (`resolved_by_type`): same-medium candidates win. A short film yields to a feature of
+    the same type (`shorts_yielded`); a short with no feature around is kept with `only_short`.
+  - **Genre** (`resolved_by_genre`): a single horror-family genre (`terror`, `misterio`,
+    `suspenso`/`thriller`, in Spanish or English) wins.
+  - **Era** (`resolved_by_era`): a disambiguation word pointing at the old or the new version
+    ("la más viejita", "clásica", "en blanco y negro" / "nueva", "remake") narrows the pool to the
+    oldest or newest year group. A single one wins; if several share that year the pool stays
+    narrowed (`era_group`) so popularity decides **within** the old or new ones, not against them.
+  - **Country** (`resolved_by_country`): a word naming the origin ("la coreana", "la japonesa")
+    picks the candidate whose `origin_country` matches.
+  - **Year** (`resolved_by_year`): an explicit hint within ±1 year wins; if there is no explicit
+    year, a year read from the disambiguation phrase ("la del 2007 o por ahí") wins within ±2
+    (`resolved_by_hint_year`).
+  - **Popularity** (`resolved_by_popularity`): the most popular remaining candidate wins, always
+    flagged so the author can spot-check it with `dds review --all`.
+- **Type substitution:** if no candidate has the expected medium but the other one does, it is kept
+  and the note records `type_substituted` (the host sometimes calls a series a movie, and a few
+  recommendations really are series). When both media share the name, the expected one is chosen and
+  the note records `same_title_other_type`. The `Devil May Cry (2001)` case is the reference for the
+  year rule; the `"Lights Out"` family (five different works with the same English title) is the
+  reference for the type and popularity rules; `"Drácula"` with "la más viejita" is the reference
+  for era.
+- **Guards:** low confidence goes to review, and a **probable-only** match that does not resemble
+  what was said (similarity below `0.5`) goes to review as `uncertain_title`. Both are overridden by
+  evidence the audio itself gives: a **literal** match (origin `mentioned`/`corrected`) is trusted at
+  any confidence, and a `disambiguation` word that settles the version (era, country or a hint year)
+  overrides low confidence. `uncertain_title` is also waived when the probable resolves to a real
+  catalog work at similarity `>= 0.90` (`probable_strong`): the model's official title exists, so the
+  translation is trusted.
 - **Confirmed** creates or reuses a work by `(source, external_id)`, fetches its details and links
-  the recommendation. Up to 5 candidates are stored on every recommendation.
+  the recommendation, storing title, original title, year, genres, original language, origin country,
+  description, image and source URL. Up to 5 candidates are stored on every recommendation.
 - **Cache and pacing:** provider responses are cached under `data/cache/`; IGDB calls are spaced by
   `DDS_IGDB_DELAY_S`. A rate limit raises `StopBatch`.
 - Re-enriching replaces automatic candidates and matches, and removes works that no recommendation
