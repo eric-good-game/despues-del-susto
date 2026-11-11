@@ -107,9 +107,21 @@ class Recommendation(Base):
     role: Mapped[str] = mapped_column(String(20))
     state: Mapped[str] = mapped_column(String(20), default="extracted")
     mentioned_title: Mapped[str] = mapped_column(String(500))
+    #: *Internal.* Orthographic/phonetic fix of the mentioned title, same work
+    #: and language, only when the transcription looks broken. Never a new guess.
+    corrected_title: Mapped[str | None] = mapped_column(String(500))
     probable_title: Mapped[str | None] = mapped_column(String(500))
     related_mentions: Mapped[str | None] = mapped_column(String(1000))
     confidence: Mapped[str] = mapped_column(String(10))
+    #: Release year, stored only when it is said explicitly in the audio (never
+    #: inferred). Used to break ties between same-title works during enrichment.
+    year: Mapped[int | None]
+    #: *Internal.* JSON list of alternative titles the host stated for this same
+    #: work (translations, "también conocida como X"). Only when said, never inferred.
+    alternate_titles: Mapped[str | None] = mapped_column(Text)
+    #: *Internal.* A phrase the host used to tell this work apart ("la más
+    #: viejita", "la coreana", "la del 2007"). Never inferred, never published.
+    disambiguation: Mapped[str | None] = mapped_column(String(500))
     mention_s: Mapped[int | None]
     mentioned_platform: Mapped[str | None] = mapped_column(String(200))
     match_score: Mapped[float | None] = mapped_column(Float)
@@ -146,6 +158,8 @@ class Work(Base):
     original_title: Mapped[str | None] = mapped_column(String(500))
     year: Mapped[int | None]
     genres: Mapped[str | None] = mapped_column(String(500))
+    original_language: Mapped[str | None] = mapped_column(String(10))
+    origin_country: Mapped[str | None] = mapped_column(String(5))
     description: Mapped[str | None] = mapped_column(Text)
     image_url: Mapped[str | None] = mapped_column(String(1000))
     source_url: Mapped[str | None] = mapped_column(String(1000))

@@ -361,8 +361,15 @@ def _review_interactive(episode: str | None, all_cases: bool) -> None:
         console.print(f"Episode: {case.episode_title}")
         probable = case.probable_title or "—"
         console.print(f'Mentioned: "{case.mentioned_title}"   Probable: "{probable}"')
+        if case.corrected_title:
+            console.print(f"[green]Corrected: \"{case.corrected_title}\"[/green]")
+        if case.alternate_titles:
+            alts = ", ".join(f'"{t}"' for t in case.alternate_titles)
+            console.print(f"[blue]Also called: {alts}[/blue]")
         mention = case.mention_s if case.mention_s is not None else "—"
         console.print(f"Confidence: {case.confidence}   Mention second: {mention}")
+        if case.disambiguation:
+            console.print(f"[cyan]Disambiguation: \"{case.disambiguation}\"[/cyan]")
         if case.match_note:
             console.print(
                 f"Current match: {case.match_note} (score {case.match_score or 0:.2f})"

@@ -16,3 +16,5 @@ class Candidate:
     source_url: str | None
     genres: tuple[str, ...] = ()
     popularity: float = 0.0
+    original_language: str | None = None
+    origin_country: str | None = None

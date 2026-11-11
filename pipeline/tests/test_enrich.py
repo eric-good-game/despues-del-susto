@@ -51,7 +51,7 @@ class FakeTmdb:
     def __init__(self, *args) -> None:
         self.candidates = [MOVIE]
 
-    def search(self, query, media_type, *, language=None):
+    def search(self, query, media_type, *, language=None, year=None):
         if media_type != "movie":
             return []
         return list(self.candidates)
@@ -64,7 +64,7 @@ class FakeIgdb:
     def __init__(self, *args) -> None:
         pass
 
-    def search(self, query):
+    def search(self, query, *, year=None, max_results=10):
         return [GAME]
 
 
@@ -72,7 +72,7 @@ class FailingTmdb:
     def __init__(self, *args) -> None:
         pass
 
-    def search(self, query, media_type, *, language=None):
+    def search(self, query, media_type, *, language=None, year=None):
         raise ProviderError("rate limited", status_code=429)
 
     def details(self, media_type, external_id):

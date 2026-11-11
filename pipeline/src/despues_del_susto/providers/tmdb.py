@@ -110,7 +110,15 @@ class TmdbClient:
                 if genre.get("name")
             ),
             popularity=float(item.get("popularity") or 0.0),
+            original_language=item.get("original_language") or None,
+            origin_country=_first_country(item.get("origin_country")),
         )
+
+
+def _first_country(value: object) -> str | None:
+    if isinstance(value, list) and value and isinstance(value[0], str):
+        return value[0]
+    return None
 
 
 def _year(date: object) -> int | None:

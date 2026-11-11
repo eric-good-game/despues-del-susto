@@ -7,11 +7,13 @@ import time
 from dataclasses import dataclass, replace
 
 from openai import OpenAI
+from rapidfuzz import fuzz
 from sqlalchemy import delete
 
 from despues_del_susto.config import LlmSettings, Settings
 from despues_del_susto.db import Recommendation, session_scope
 from despues_del_susto.db.models import Episode, utcnow
+from despues_del_susto.services.matching import normalize_title
 from despues_del_susto.services.processing import get_or_create
 from despues_del_susto.steps.errors import StopBatch
 
@@ -33,7 +35,11 @@ de pasada ni adaptaciones que solo se comentan. Devuelve únicamente JSON válid
  "recommendations": [
    {"type": "videogame | movie | series | book | other",
     "mentioned_title": "como aparece en la transcripción",
+    "corrected_title": "el mismo título corregido de erratas de transcripción, o null",
     "probable_title": "título oficial si estás seguro, o null",
+    "alternate_titles": ["otros nombres del mismo título que se digan (alias/traducciones)"],
+    "year": 2017,
+    "disambiguation": "frase textual que usa el presentador para distinguir esta obra, o null",
     "related_mentions": "obras derivadas nombradas junto a esta, o null",
     "mention_s": 0,
     "mentioned_platform": "plataforma que dicen en el audio, o null",
@@ -41,8 +47,29 @@ de pasada ni adaptaciones que solo se comentan. Devuelve únicamente JSON válid
  ]}
 
 Reglas:
-- Si el nombre pudo transcribirse mal, pon en mentioned_title lo que aparece y en
-  probable_title tu mejor estimación con confidence medium o low. Si no estás seguro, null.
+- Dos formas distintas de corregir el nombre, NO las mezcles:
+  - corrected_title: SOLO arregla errores de transcricción del mentioned_title (letras sueltas,
+    palabras pegadas, fonética). Mismo idioma, mismas palabras, misma obra. Si el mentioned está
+    bien o no sabes cómo corregirlo, null. Ej: "Gon Jiam" -> "Gonjiam", "Moondown" -> "Mundaun".
+    NO lo uses para cambiar el título por otro ni para traducirlo.
+  - probable_title: el título oficial de la obra si lo reconoces, aunque sea otro idioma u otra
+    forma ("la del finado" -> "Don't Come Home"). Si no estás seguro, null.
+- alternate_titles: lista de OTROS nombres del MISMO título que el presentador dice en voz alta,
+  sobre todo la traducción o el título en otro idioma ("en español se llama Madre Siniestra",
+  "también conocida como The Other Mother"). Solo los nombres que se digan explícitamente; si el
+  presentador no menciona ningún nombre alterno, lista vacía. NO son secuelas/spin-offs (esos van a
+  related_mentions), son sinónimos del mismo título.
+- Si el nombre pudo transcribirse mal, pon mentioned_title (lo que aparece), corrected_title (si
+  sabes corregirlo) y/o probable_title (si reconoces la obra) con confidence medium o low.
+- year es el año de estreno o lanzamiento. Ponlo SOLO si se dice como dato explícito
+  ("se estrenó en 1931"). Si el año aparece como una forma coloquial de identificar la obra
+  ("la del 2007 o por ahí", "la de hace años"), NO lo pongas en year: guárdalo textualmente
+  en disambiguation y deja year null. Si no se dice ningún año, null.
+- disambiguation: guarda LA FRASE EXACTA del presentador que ayuda a distinguir cuál versión
+  de la obra es, cuando hay varias con el mismo nombre. Ejemplos: "la más viejita", "la de
+  Francis Ford Coppola", "la coreana", "en blanco y negro", "donde sale el actor tal",
+  "la del 2007 o por ahí". No lo infieras; solo si lo dicen. Si no aportan nada para
+  distinguirla, null.
 - mention_s es el segundo de la línea donde empieza la recomendación (por ejemplo, la pregunta
   del presentador).
 - No inventes obras ni datos que no estén en el texto.
@@ -69,10 +96,14 @@ class RecommendationDraft:
     type: str
     mentioned_title: str
     probable_title: str | None
+    year: int | None
     related_mentions: str | None
     mention_s: int | None
     mentioned_platform: str | None
     confidence: str
+    corrected_title: str | None = None
+    alternate_titles: tuple[str, ...] = ()
+    disambiguation: str | None = None
     role: str = "additional"
 
 
@@ -277,7 +308,11 @@ def run(episode: Episode, settings: Settings) -> None:
                 "role": item.role,
                 "state": "extracted",
                 "mentioned_title": item.mentioned_title,
+                "corrected_title": item.corrected_title,
                 "probable_title": item.probable_title,
+                "alternate_titles": list(item.alternate_titles),
+                "year": item.year,
+                "disambiguation": item.disambiguation,
                 "related_mentions": item.related_mentions,
                 "mention_s": item.mention_s,
                 "mentioned_platform": item.mentioned_platform,
@@ -296,6 +331,9 @@ def run(episode: Episode, settings: Settings) -> None:
             )
         )
         for item in recommendations:
+            alternates_json = (
+                json.dumps(list(item.alternate_titles)) if item.alternate_titles else None
+            )
             session.add(
                 Recommendation(
                     episode_id=episode.id,
@@ -303,7 +341,11 @@ def run(episode: Episode, settings: Settings) -> None:
                     role=item.role,
                     state="extracted",
                     mentioned_title=item.mentioned_title,
+                    corrected_title=item.corrected_title,
                     probable_title=item.probable_title,
+                    alternate_titles=alternates_json,
+                    year=item.year,
+                    disambiguation=item.disambiguation,
                     related_mentions=item.related_mentions,
                     confidence=item.confidence,
                     mention_s=item.mention_s,
@@ -353,15 +395,23 @@ def _normalize(data: object, provider: str, model: str) -> ExtractionResult:
             confidence = "low"
         mention = raw.get("mention_s")
         mention_s = int(mention) if isinstance(mention, int | float) else None
+        year = raw.get("year")
+        year = int(year) if isinstance(year, int | float) else None
+        corrected = _corrected_title(_optional_text(raw.get("corrected_title")), title)
+        alternates = _clean_alternates(raw.get("alternate_titles"), title, corrected)
         recommendations.append(
             RecommendationDraft(
                 type=type_,
                 mentioned_title=title,
                 probable_title=_optional_text(raw.get("probable_title")),
+                year=year,
                 related_mentions=_optional_text(raw.get("related_mentions")),
                 mention_s=mention_s,
                 mentioned_platform=_optional_text(raw.get("mentioned_platform")),
                 confidence=confidence,
+                corrected_title=corrected,
+                alternate_titles=alternates,
+                disambiguation=_optional_text(raw.get("disambiguation")),
             )
         )
 
@@ -382,6 +432,48 @@ def _text(value: object, default: str = "") -> str:
 def _optional_text(value: object) -> str | None:
     text = _text(value)
     return text or None
+
+
+#: A corrected_title must stay close to the mentioned one; beyond this it is a
+#: new guess and belongs in probable_title instead.
+CORRECTED_MIN_RATIO = 70
+
+
+def _corrected_title(corrected: str | None, mentioned: str) -> str | None:
+    """Keep a transcription fix only while it is close to what was said."""
+    if not corrected:
+        return None
+    ratio = fuzz.ratio(normalize_title(corrected), normalize_title(mentioned))
+    return corrected if ratio >= CORRECTED_MIN_RATIO else None
+
+
+#: Cap for alternative titles captured per recommendation.
+MAX_ALTERNATE_TITLES = 4
+
+
+def _clean_alternates(
+    value: object, mentioned: str, corrected: str | None
+) -> tuple[str, ...]:
+    """Keep the spoken aliases of the same title, deduped and free of the known ones."""
+    if not isinstance(value, list):
+        return ()
+    skip = {normalize_title(mentioned)}
+    if corrected:
+        skip.add(normalize_title(corrected))
+    seen: set[str] = set()
+    titles: list[str] = []
+    for item in value:
+        text = _text(item)
+        if not text:
+            continue
+        key = normalize_title(text)
+        if key in skip or key in seen:
+            continue
+        seen.add(key)
+        titles.append(text)
+        if len(titles) >= MAX_ALTERNATE_TITLES:
+            break
+    return tuple(titles)
 
 
 def _is_transient(exc: Exception) -> bool:

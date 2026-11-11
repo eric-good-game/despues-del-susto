@@ -30,6 +30,8 @@ def upsert_work(session: Session, candidate: Candidate) -> Work:
     work.original_title = candidate.original_title
     work.year = candidate.year
     work.genres = ", ".join(candidate.genres) or None
+    work.original_language = candidate.original_language
+    work.origin_country = candidate.origin_country
     work.description = candidate.description
     work.image_url = candidate.image_url
     work.source_url = candidate.source_url

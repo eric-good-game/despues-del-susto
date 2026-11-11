@@ -1,5 +1,6 @@
 """Review pending recommendation matches."""
 
+import json
 from dataclasses import dataclass
 
 from sqlalchemy import delete, func, select
@@ -56,11 +57,14 @@ class ReviewCase:
     type: str
     state: str
     mentioned_title: str
+    corrected_title: str | None
     probable_title: str | None
     confidence: str
     mention_s: int | None
     match_score: float | None
     match_note: str | None
+    disambiguation: str | None
+    alternate_titles: tuple[str, ...]
     candidates: list[CandidateView]
 
 
@@ -131,7 +135,7 @@ def search_alternatives(
 
     tmdb, igdb = make_clients(settings)
     try:
-        scored = search_candidates(settings, tmdb, igdb, type_, query)
+        scored = search_candidates(settings, tmdb, igdb, type_, [("search", query)])
     except ProviderError as exc:
         raise ReviewError(str(exc)) from exc
     return scored[: settings.max_candidates]
@@ -256,6 +260,18 @@ def fetch_details(
     raise ReviewError(f"unknown source {source}")
 
 
+def _load_alternates(value: str | None) -> tuple[str, ...]:
+    if not value:
+        return ()
+    try:
+        data = json.loads(value)
+    except (ValueError, TypeError):
+        return ()
+    if not isinstance(data, list):
+        return ()
+    return tuple(str(item) for item in data if isinstance(item, str) and item.strip())
+
+
 def _case(recommendation: Recommendation) -> ReviewCase:
     candidates = sorted(
         recommendation.candidates, key=lambda candidate: candidate.score, reverse=True
@@ -267,11 +283,14 @@ def _case(recommendation: Recommendation) -> ReviewCase:
         type=recommendation.type,
         state=recommendation.state,
         mentioned_title=recommendation.mentioned_title,
+        corrected_title=recommendation.corrected_title,
         probable_title=recommendation.probable_title,
         confidence=recommendation.confidence,
         mention_s=recommendation.mention_s,
         match_score=recommendation.match_score,
         match_note=recommendation.match_note,
+        disambiguation=recommendation.disambiguation,
+        alternate_titles=_load_alternates(recommendation.alternate_titles),
         candidates=[
             CandidateView(
                 id=candidate.id,

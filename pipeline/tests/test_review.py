@@ -294,7 +294,7 @@ def test_search_alternatives_returns_scored_candidates(
     monkeypatch.setattr(
         review_module,
         "search_candidates",
-        lambda settings, tmdb, igdb, type_, query: scored,
+        lambda settings, tmdb, igdb, type_, query, *, year_hint=None: scored,
     )
 
     results = search_alternatives(settings, recommendation_id, "Lights Out")

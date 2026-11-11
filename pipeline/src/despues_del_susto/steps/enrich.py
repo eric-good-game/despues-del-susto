@@ -1,5 +1,6 @@
 """The ``enrich`` step: match recommendations to catalog works."""
 
+import json
 import logging
 from dataclasses import dataclass
 
@@ -17,8 +18,8 @@ from despues_del_susto.services.matching import (
     Decision,
     decide,
     extract_year,
-    similarity,
 )
+from despues_del_susto.services.matching_enhanced import build_queries
 from despues_del_susto.services.metadata import search_candidates
 from despues_del_susto.services.works import cleanup_orphans, upsert_work
 from despues_del_susto.steps.errors import StopBatch
@@ -36,9 +37,26 @@ class EnrichmentError(RuntimeError):
 class RecommendationInput:
     id: int
     type: str
-    probable_title: str | None
     mentioned_title: str
+    corrected_title: str | None
+    probable_title: str | None
+    year: int | None
     confidence: str
+    disambiguation: str | None
+    alternate_titles: tuple[str, ...]
+
+
+def _parse_alternates(value: str | None) -> tuple[str, ...]:
+    """Read the JSON list stored on a recommendation, tolerating bad data."""
+    if not value:
+        return ()
+    try:
+        data = json.loads(value)
+    except (ValueError, TypeError):
+        return ()
+    if not isinstance(data, list):
+        return ()
+    return tuple(str(item) for item in data if isinstance(item, str) and item.strip())
 
 
 def run(episode: Episode, settings: Settings) -> None:
@@ -53,9 +71,13 @@ def run(episode: Episode, settings: Settings) -> None:
             RecommendationInput(
                 id=row.id,
                 type=row.type,
-                probable_title=row.probable_title,
                 mentioned_title=row.mentioned_title,
+                corrected_title=row.corrected_title,
+                probable_title=row.probable_title,
+                year=row.year,
                 confidence=row.confidence,
+                disambiguation=row.disambiguation,
+                alternate_titles=_parse_alternates(row.alternate_titles),
             )
             for row in rows
         ]
@@ -93,32 +115,31 @@ def _match(
     if item.type in MANUAL_TYPES:
         return Decision("manual_pending", None, None, "manual_source", [])
 
-    query = (item.probable_title or item.mentioned_title or "").strip()
-    if not query:
+    queries = build_queries(
+        item.mentioned_title,
+        item.corrected_title,
+        item.probable_title,
+        item.alternate_titles,
+    )
+    if not queries:
         return Decision("no_match", None, None, "empty_title", [])
 
-    year_hint = extract_year(item.probable_title) or extract_year(
-        item.mentioned_title
+    year_hint = (
+        item.year
+        or extract_year(item.probable_title)
+        or extract_year(item.mentioned_title)
     )
-    scored = search_candidates(settings, tmdb, igdb, item.type, query)
-    decision = decide(
+    scored = search_candidates(settings, tmdb, igdb, item.type, queries)
+    return decide(
         recommendation_type=item.type,
         confidence=item.confidence,
         year_hint=year_hint,
         scored=scored,
         threshold=settings.match_threshold,
         min_difference=settings.match_min_difference,
+        mentioned=item.mentioned_title,
+        hint=item.disambiguation,
     )
-    if (
-        decision.state == "confirmed"
-        and item.confidence != "high"
-        and decision.chosen is not None
-        and similarity(item.mentioned_title, decision.chosen) < 0.5
-    ):
-        return Decision(
-            "needs_review", None, decision.score, "uncertain_title", decision.candidates
-        )
-    return decision
 
 
 def _persist(

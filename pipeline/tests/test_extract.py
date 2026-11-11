@@ -26,11 +26,17 @@ from despues_del_susto.steps.extract import (
 )
 
 
-def _draft(type_: str, title: str = "X", confidence: str = "high") -> RecommendationDraft:
+def _draft(
+    type_: str,
+    title: str = "X",
+    confidence: str = "high",
+    year: int | None = None,
+) -> RecommendationDraft:
     return RecommendationDraft(
         type=type_,
         mentioned_title=title,
         probable_title=None,
+        year=year,
         related_mentions=None,
         mention_s=1,
         mentioned_platform=None,
@@ -114,6 +120,7 @@ def test_normalize_cleans_types_titles_and_confidence() -> None:
                 "type": "movie",
                 "mentioned_title": " A ",
                 "probable_title": "",
+                "year": 2018,
                 "related_mentions": None,
                 "mention_s": 10.5,
                 "mentioned_platform": "Netflix",
@@ -134,10 +141,12 @@ def test_normalize_cleans_types_titles_and_confidence() -> None:
     assert len(result.recommendations) == 2
     assert result.recommendations[0].mentioned_title == "A"
     assert result.recommendations[0].probable_title is None
+    assert result.recommendations[0].year == 2018
     assert result.recommendations[0].mention_s == 10
     assert result.recommendations[0].confidence == "high"
     assert result.recommendations[1].type == "other"
     assert result.recommendations[1].confidence == "low"
+    assert result.recommendations[1].year is None
 
 
 def test_parse_json_accepts_a_fenced_block() -> None:
